@@ -1,191 +1,239 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'main_screen.dart';
+import 'home_page.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  const OnboardingScreen({super.key});
+  const OnboardingScreen({Key? key}) : super(key: key);
 
   @override
-  _OnboardingScreenState createState() => _OnboardingScreenState();
+  OnboardingScreenState createState() => OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
-  final PageController _pageController = PageController();
-  int _currentIndex = 0;
-  final TextEditingController _nameController = TextEditingController();
+class OnboardingScreenState extends State<OnboardingScreen> {
+  final _usernameController = TextEditingController();
+  bool _isLoading = false; // Add a loading state
 
-  List<Widget> _buildPages() {
-    return [
-      _buildPage(
-        image: 'assets/onboard/image1.png',
-        title: "Plan your adventure and track your progress",
-      ),
-      _buildPage(
-        image: 'assets/onboard/image2.png',
-        title: "Strive for the summit by competing with fellow hikers",
-      ),
-      _buildPage(
-        image: 'assets/onboard/image3.png',
-        title: "Upgrade your gear for an enhanced hiking experience",
-      ),
-      _buildNameInputPage(),
-    ];
-  }
+  Future<void> _completeOnboarding() async {
+    setState(() {
+      _isLoading = true; // Start loading animation
+    });
 
-  Widget _buildPage({required String image, required String title}) {
-    return Container(
-      decoration: BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage(image),
-          fit: BoxFit.cover,
-        ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const Spacer(),
-        ],
+    // Simulate a delay for the loading animation (replace with your actual logic)
+    await Future.delayed(const Duration(seconds: 2));
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', _usernameController.text);
+    await prefs.setBool('onboarding_complete', true);
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = false; // Stop loading animation
+    });
+
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const HomePage(),
+        transitionDuration: const Duration(milliseconds: 500), 
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(
+            opacity: animation.drive(CurveTween(curve: Curves.easeInOut)),
+            child: child,
+          );
+        },
       ),
     );
   }
 
-  Widget _buildNameInputPage() {
-    return Container(
-      decoration: const BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage('assets/onboard/image4.png'),
-          fit: BoxFit.cover,
-        ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Spacer(),
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              "What should we call you?",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40.0),
-            child: TextField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                hintText: "Enter your name",
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(30.0),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () async {
-              String name = _nameController.text.trim();
-              if (name.isNotEmpty) {
-                SharedPreferences prefs = await SharedPreferences.getInstance();
-                await prefs.setString('username', name);
-                await prefs.setBool('onboardingCompleted', true);
-                // Delay navigation slightly
-                Future.delayed(const Duration(milliseconds: 300), () {
-                  if (mounted) {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (context) => MainScreen(username: name)),
-                    );
-                  }
-                });
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter a name')),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              foregroundColor: Colors.black, backgroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-            ),
-            child: const Text("Get Started ->"),
-          ),
-          TextButton(
-            onPressed: () async {
-              Future.delayed(const Duration(milliseconds: 300), () {
-                if (mounted) {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MainScreen(username: '')),
-                  );
-                }
-              });
-            },
-            child: const Text("Skip name", style: TextStyle(color: Colors.white)),
-          ),
-          const Spacer(),
-        ],
+  Future<void> _skipOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_complete', true);
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const HomePage(),
+        transitionDuration: const Duration(milliseconds: 500),
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(
+            opacity: animation.drive(CurveTween(
+              curve: Interval(0.5, 1.0, curve: Curves.easeOut),
+            )),
+            child: child,
+          );
+        },
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    _nameController.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
+        fit: StackFit.expand, // Ensure the stack fills the screen
         children: [
-          PageView(
-            controller: _pageController,
-            onPageChanged: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            children: _buildPages(),
+          // Background Image with Gradient & Blur
+          Container(
+            decoration: BoxDecoration(
+              image: const DecorationImage(
+                image: AssetImage('assets/onboarding/image3.png'),
+                fit: BoxFit.cover,
+              ),
+              gradient: LinearGradient(
+                colors: [
+                  Colors.black.withOpacity(0.7),
+                  Colors.blueAccent.withOpacity(0.3),
+                  Colors.transparent,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                color: Colors.black.withOpacity(0.35),
+              ),
+            ),
           ),
-          Positioned(
-            bottom: 20,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                4,
-                (index) => AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.symmetric(horizontal: 5),
-                  width: _currentIndex == index ? 12 : 8,
-                  height: _currentIndex == index ? 12 : 8,
+          // Centered Glassmorphism Card
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: Container(
+                  width: 420,
+                  constraints: const BoxConstraints(maxWidth: 420),
                   decoration: BoxDecoration(
-                    color: _currentIndex == index ? Colors.white : Colors.grey,
-                    shape: BoxShape.circle,
+                    borderRadius: BorderRadius.circular(32),
+                    color: Colors.white.withOpacity(0.13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 32,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.18),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Modern Welcome Text
+                          Text(
+                            'Welcome to',
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withOpacity(0.92),
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ShaderMask(
+                            shaderCallback: (Rect bounds) {
+                              return LinearGradient(
+                                colors: [
+                                  Colors.blueAccent.shade100,
+                                  Colors.purpleAccent.shade100,
+                                  Colors.white,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ).createShader(bounds);
+                            },
+                            child: const Text(
+                              'The New Praise and Worship Companion',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.2,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 30),
+                          const Text(
+                            'What should we call you?',
+                            style: TextStyle(
+                              fontSize: 22,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          // Modern TextField
+                          Material(
+                            color: Colors.white.withOpacity(0.85),
+                            borderRadius: BorderRadius.circular(22),
+                            elevation: 2,
+                            child: TextField(
+                              controller: _usernameController,
+                              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w500),
+                              decoration: InputDecoration(
+                                hintText: 'Enter your name',
+                                hintStyle: TextStyle(color: Colors.grey.shade600),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(22),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                                filled: true,
+                                fillColor: Colors.white.withOpacity(0.85),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 30),
+                          // Modern Button
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: _isLoading ? null : _completeOnboarding,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blueAccent,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                                elevation: 4,
+                                shadowColor: Colors.blueAccent.withOpacity(0.18),
+                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 3,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                  : const Text('Get Started'),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed: _skipOnboarding,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white.withOpacity(0.92),
+                              textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                            ),
+                            child: const Text('Skip for now'),
+                          ),
+                          const SizedBox(height: 24), // Extra bottom padding
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
