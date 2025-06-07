@@ -39,7 +39,7 @@ dependencies:
   floating_bottom_navigation_bar: ^1.5.2
   floating_navbar: ^2.0.2
   font_awesome_flutter: ^10.7.0
-  lottie: ^3.1.2
+  lottie: ^3.3.1
   provider: ^6.1.2
   dynamic_color: ^1.7.0
   smooth_page_indicator: ^1.2.0+3
@@ -54,6 +54,11 @@ dependencies:
   path_provider: ^2.1.5
   permission_handler: ^12.0.0+1
   image_cropper: ^9.1.0
+  http: ^1.4.0
+  url_launcher: ^6.3.1
+  animated_text_kit: ^4.2.3
+  inditrans: ^0.12.1
+  in_app_update: ^4.2.3
 
 dev_dependencies:
   flutter_test:
@@ -82,10 +87,11 @@ flutter:
     - assets/cards/
     - assets/onboarding/
     - assets/icons/
-    - assets/animations/
+    - assets/animations/ai_animation.json
     - .env
     - assets/fonts/
     - assets/profile.png
+    - assets/screenshots/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

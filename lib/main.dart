@@ -10,19 +10,32 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'services/local_database_service.dart';
 import 'services/realtime_sync_service.dart';
+import 'package:inditrans/inditrans.dart' as inditrans;
+import 'package:worshipcompanion/widgets/favorite_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize inditrans for transliteration support
+  await inditrans.init();
 
   // By default, dotenv.load() looks for ".env" in the project root.
   // Ensure your .env file is in the project root, not in lib/
   await dotenv.load(fileName: ".env");
 
-  // Initialize Supabase
-  await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!, // Uses the URL from .env
-    anonKey: dotenv.env['SUPABASE_ANON_KEY']!, // Uses the "anon" key from .env
-  );
+  // Defensive: Track if Supabase is initialized
+  bool supabaseInitialized = false;
+  try {
+    await Supabase.initialize(
+      url: dotenv.env['SUPABASE_URL']!, // Uses the URL from .env
+      anonKey: dotenv.env['SUPABASE_ANON_KEY']!, // Uses the "anon" key from .env
+    );
+    supabaseInitialized = true;
+  } catch (e) {
+    print('Supabase initialization failed: '
+        '[31m$e[0m');
+    // Proceed without Supabase; local DB will be used
+  }
 
   final prefs = await SharedPreferences.getInstance();
   final showOnboarding = prefs.getBool('onboarding_complete') ?? false;
@@ -30,26 +43,36 @@ Future<void> main() async {
   final themeProvider = ThemeProvider();
   await themeProvider.initialize();
 
-  // --- Sync local DB from Supabase if online ---
+  // Initialize FavoriteProvider and load favorites
+  final favoriteProvider = FavoriteProvider();
+  // No need to await favoriteProvider._loadFavorites() as it's called in its constructor
+
+  // --- Sync local DB from Supabase if online and Supabase is initialized ---
   final connectivityResult = await Connectivity().checkConnectivity();
-  if (connectivityResult != ConnectivityResult.none) {
+  if (connectivityResult != ConnectivityResult.none && supabaseInitialized) {
     await LocalDatabaseService.instance.syncFromSupabase();
   }
-  // Start real-time listener
-  RealtimeSyncService.instance.startListening();
+  // Start real-time listener only if Supabase is initialized
+  if (supabaseInitialized) {
+    RealtimeSyncService.instance.startListening();
+  }
 
   runApp(
-    ChangeNotifierProvider.value(
-      value: themeProvider,
-      child: MyApp(showOnboarding: showOnboarding),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: themeProvider),
+        ChangeNotifierProvider.value(value: favoriteProvider),
+      ],
+      child: MyApp(showOnboarding: showOnboarding, supabaseInitialized: supabaseInitialized),
     ),
   );
 }
 
 class MyApp extends StatefulWidget {
   final bool showOnboarding;
+  final bool supabaseInitialized;
 
-  const MyApp({super.key, required this.showOnboarding});
+  const MyApp({super.key, required this.showOnboarding, this.supabaseInitialized = true});
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -66,8 +89,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _connectivity = Connectivity();
     _connectivityStream = _connectivity.onConnectivityChanged;
     _connectivityStream.listen((result) async {
-      if (result != ConnectivityResult.none) {
+      if (result != ConnectivityResult.none && widget.supabaseInitialized) {
         await LocalDatabaseService.instance.syncFromSupabase();
+        // Also refresh favorites in case they were updated by sync
+        if (mounted) {
+          Provider.of<FavoriteProvider>(context, listen: false).refreshFavorites();
+        }
       }
     });
   }

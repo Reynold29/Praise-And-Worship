@@ -8,7 +8,7 @@ class Song {
   final String title;
   final String lyrics;
   final String? chords;
-  final String category; // Assuming this matches categoryKey from CardModel
+  final String category; // May be 'english_data', 'english', 'kannada_data', or 'kannada'. Normalized for display in UI.
   final String? authorName;
   final String? genre;
   final String? keySignature;
@@ -30,15 +30,17 @@ class Song {
     this.youtubeLink,
   });
 
-  factory Song.fromJson(Map<String, dynamic> json) {
+  factory Song.fromJson(Map<String, dynamic> json, {String? categoryOverride}) {
+    String? createdAtStr = json['created_at'] as String?;
+    String? updatedAtStr = json['updated_at'] as String?;
     return Song(
       id: json['id'].toString(),
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: createdAtStr != null ? DateTime.tryParse(createdAtStr) ?? DateTime.now() : DateTime.now(),
+      updatedAt: updatedAtStr != null ? DateTime.tryParse(updatedAtStr) ?? DateTime.now() : DateTime.now(),
       title: json['title'] as String,
       lyrics: json['lyrics'] as String,
       chords: json['chords'] as String?,
-      category: json['category'].toString(),
+      category: categoryOverride ?? json['category']?.toString() ?? 'unknown_data',
       authorName: json['author_name'] as String?,
       genre: json['genre'] as String?,
       keySignature: json['key_signature'] as String?,

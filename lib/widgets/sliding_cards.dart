@@ -9,9 +9,12 @@ import 'package:vibration/vibration.dart';
 import 'package:worshipcompanion/screens/song_list_screen.dart';
 import 'package:worshipcompanion/screens/add_song_options_screen.dart';
 import 'package:worshipcompanion/screens/about_developer.dart';
+import 'package:worshipcompanion/screens/kannada_song_list_screen.dart';
+import 'package:worshipcompanion/screens/home_page.dart';
 
 class SlidingCardsView extends StatefulWidget {
-  const SlidingCardsView({super.key});
+  final VoidCallback? onFavoriteToggled;
+  const SlidingCardsView({super.key, this.onFavoriteToggled});
 
   @override
   State<SlidingCardsView> createState() => _SlidingCardsViewState();
@@ -52,14 +55,13 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
         });
 
         final bool? hasCustomSupport = await Vibration.hasCustomVibrationsSupport();
-
         if (hasCustomSupport == true) {
           Vibration.vibrate(
-            duration: 20,
-            amplitude: 60,
+            duration: 6,
+            amplitude: 30,
           );
         } else {
-          Vibration.vibrate(duration: 20);
+          Vibration.vibrate(duration: 6);
         }
       }
     } catch (e) {
@@ -133,14 +135,14 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                             final card = demoCardData[index];
                             if (card.onTap != null) {
                               card.onTap!();
-                            } else if (card.categoryKey != null) {
-                              print('Card tapped: ${card.name}, navigating with key: ${card.categoryKey}, heroTag: ${card.heroTag}');
+                            } else if (card.name == "Kannada Songs") {
+                              print('Card tapped: Kannada Songs, navigating to KannadaSongListScreen');
                               await Navigator.of(context).push(
                                 PageRouteBuilder(
-                                  pageBuilder: (context, animation, secondaryAnimation) => SongListScreen(heroTag: card.heroTag, cardImage: card.image),
+                                  pageBuilder: (context, animation, secondaryAnimation) => KannadaSongListScreen(heroTag: card.heroTag, cardImage: card.image, onFavoriteToggled: widget.onFavoriteToggled),
                                   transitionsBuilder: (context, animation, secondaryAnimation, child) {
                                     return FadeTransition(
-                                      opacity: animation,
+                                      opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
                                       child: child,
                                     );
                                   },
@@ -148,12 +150,21 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                   reverseTransitionDuration: const Duration(milliseconds: 400),
                                 ),
                               );
-                              if (mounted && pageController.hasClients && pageController.page?.round() != index) {
-                                print("Popped back from SongListScreen, jumping PageView to index: $index");
-                                pageController.jumpToPage(index);
-                              }
                             } else {
-                              print('Card tapped: ${card.name} - No specific action or category key defined.');
+                              print('Card tapped: English Songs, navigating to SongListScreen');
+                              await Navigator.of(context).push(
+                                PageRouteBuilder(
+                                  pageBuilder: (context, animation, secondaryAnimation) => SongListScreen(heroTag: card.heroTag, cardImage: card.image, onFavoriteToggled: widget.onFavoriteToggled),
+                                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                    return FadeTransition(
+                                      opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                      child: child,
+                                    );
+                                  },
+                                  transitionDuration: const Duration(milliseconds: 450),
+                                  reverseTransitionDuration: const Duration(milliseconds: 400),
+                                ),
+                              );
                             }
                           },
                           child: Hero(
@@ -287,7 +298,20 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 if (hasVibration == true) {
                                   Vibration.vibrate(duration: 18, amplitude: 60);
                                 }
-                                print('Favorites button tapped');
+                                Navigator.push(
+                                  context,
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation, secondaryAnimation) => const FavoritesScreen(),
+                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                      return FadeTransition(
+                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                        child: child,
+                                      );
+                                    },
+                                    transitionDuration: const Duration(milliseconds: 450),
+                                    reverseTransitionDuration: const Duration(milliseconds: 400),
+                                  ),
+                                );
                               },
                             ),
                           ),
@@ -315,7 +339,17 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const AddSongOptionsScreen()),
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation, secondaryAnimation) => const AddSongOptionsScreen(),
+                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                      return FadeTransition(
+                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                        child: child,
+                                      );
+                                    },
+                                    transitionDuration: const Duration(milliseconds: 450),
+                                    reverseTransitionDuration: const Duration(milliseconds: 400),
+                                  ),
                                 );
                               },
                             ),
@@ -344,7 +378,17 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const SettingsPage()),
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation, secondaryAnimation) => const SettingsPage(),
+                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                      return FadeTransition(
+                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                        child: child,
+                                      );
+                                    },
+                                    transitionDuration: const Duration(milliseconds: 450),
+                                    reverseTransitionDuration: const Duration(milliseconds: 400),
+                                  ),
                                 );
                               },
                             ),
@@ -373,7 +417,17 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const AboutDeveloper()),
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation, secondaryAnimation) => const AboutDeveloper(),
+                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                      return FadeTransition(
+                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                        child: child,
+                                      );
+                                    },
+                                    transitionDuration: const Duration(milliseconds: 450),
+                                    reverseTransitionDuration: const Duration(milliseconds: 400),
+                                  ),
                                 );
                               },
                             ),

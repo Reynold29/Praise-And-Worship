@@ -1,4 +1,4 @@
-package com.example.worshipcompanion
+package com.reyzie.worshipcompanion
 
 import io.flutter.embedding.android.FlutterActivity
 

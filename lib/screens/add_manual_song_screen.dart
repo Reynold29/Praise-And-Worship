@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
+import 'package:vibration/vibration.dart';
 
 class AddManualSongScreen extends StatefulWidget {
-  const AddManualSongScreen({super.key});
+  final String? initialTitle;
+  final String? initialLyrics;
+  final String? initialAuthor;
+  const AddManualSongScreen({super.key, this.initialTitle, this.initialLyrics, this.initialAuthor});
 
   @override
   _AddManualSongScreenState createState() => _AddManualSongScreenState();
@@ -33,6 +37,15 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
   void initState() {
     super.initState();
     _loadUsername();
+    if (widget.initialTitle != null && widget.initialTitle!.isNotEmpty) {
+      _titleController.text = widget.initialTitle!;
+    }
+    if (widget.initialLyrics != null && widget.initialLyrics!.isNotEmpty) {
+      _lyricsController.text = widget.initialLyrics!;
+    }
+    if (widget.initialAuthor != null && widget.initialAuthor!.isNotEmpty) {
+      _authorController.text = widget.initialAuthor!;
+    }
   }
 
   Future<void> _loadUsername() async {
@@ -57,8 +70,16 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
     super.dispose();
   }
 
+  void _performVibration() async {
+    final bool? hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) {
+      Vibration.vibrate(duration: 18, amplitude: 60);
+    }
+  }
+
   void _submitForReview() async {
     if (_formKey.currentState!.validate()) {
+      _performVibration();
       final songData = {
         'title': _titleController.text,
         'author_name': _authorController.text,
@@ -103,7 +124,10 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
             content: Text(errorMsg),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () {
+                  _performVibration();
+                  Navigator.of(context).pop();
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -127,7 +151,10 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.send_rounded, color: colorScheme.primary),
-            onPressed: _submitForReview,
+            onPressed: () {
+              _performVibration();
+              _submitForReview();
+            },
             tooltip: 'Submit for Review',
           ),
         ],
@@ -185,7 +212,10 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                           child: Text(lang),
                         ))
                     .toList(),
-                onChanged: (val) => setState(() => _selectedLanguage = val),
+                onChanged: (val) {
+                  _performVibration();
+                  setState(() => _selectedLanguage = val);
+                },
                 decoration: InputDecoration(
                   labelText: 'Language',
                   prefixIcon: Icon(Icons.language_rounded, color: colorScheme.primary),
@@ -242,8 +272,13 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   textStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                  elevation: 4.0,
+                  splashFactory: InkSparkle.splashFactory,
                 ),
-                onPressed: _submitForReview,
+                onPressed: () {
+                  _performVibration();
+                  _submitForReview();
+                },
               ),
             ],
           ),
@@ -283,6 +318,8 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
       style: TextStyle(color: colorScheme.onSurfaceVariant),
       keyboardType: keyboardType,
       enabled: enabled,
+      cursorColor: colorScheme.primary,
+      selectionControls: MaterialTextSelectionControls(),
     );
   }
 } 

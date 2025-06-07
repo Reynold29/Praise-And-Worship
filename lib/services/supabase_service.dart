@@ -11,7 +11,7 @@ class SupabaseService {
   Future<List<Song>> getSongsByCategory(String categoryKey) async {
     try {
       final response = await _client
-          .from('english_data')
+          .from(categoryKey)
           .select()
           .order('title', ascending: true);
 
@@ -20,7 +20,10 @@ class SupabaseService {
         return [];
       }
       final List<dynamic> responseData = response as List<dynamic>; 
-      final songs = responseData.map((data) => Song.fromJson(data as Map<String, dynamic>)).toList();
+      final songs = responseData.map((data) {
+        print('[SupabaseService] Processing data for categoryKey: $categoryKey, data: $data');
+        return Song.fromJson(data as Map<String, dynamic>, categoryOverride: categoryKey);
+      }).toList();
       return songs;
     } catch (e) {
       print('Error fetching all songs from english_data: $e');

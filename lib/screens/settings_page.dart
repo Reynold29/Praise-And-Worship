@@ -87,6 +87,13 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.setInt(_customColorKeySP, _customColor.value);
   }
 
+  void _performVibration() async {
+    final bool? hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) {
+      Vibration.vibrate(duration: 18, amplitude: 60);
+    }
+  }
+
   void _openColorPicker() async {
     final themeProvider = Provider.of<ThemeProvider>(this.context, listen: false);
     
@@ -165,6 +172,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     groupValue: _selectedTheme,
                     activeColor: Theme.of(context).colorScheme.primary,
                     onChanged: (AppThemeMode? value) async {
+                      _performVibration();
                       if (value != null) {
                         setState(() {
                           _selectedTheme = value;
@@ -182,6 +190,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     groupValue: _selectedTheme,
                     activeColor: Theme.of(context).colorScheme.primary,
                     onChanged: (AppThemeMode? value) async {
+                      _performVibration();
                       if (value != null) {
                         setState(() {
                           _selectedTheme = value;
@@ -206,6 +215,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     value: themeProvider.isDarkMode,
                     activeColor: Theme.of(context).colorScheme.primary,
                     onChanged: (bool value) {
+                      _performVibration();
                       themeProvider.toggleTheme(value);
                     },
                     subtitle: Text('Enable or disable dark theme.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
@@ -215,6 +225,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     value: _isAmoledBlackEnabled,
                     activeColor: Theme.of(context).colorScheme.primary,
                     onChanged: (bool value) async {
+                      _performVibration();
                       setState(() {
                         _isAmoledBlackEnabled = value;
                       });
@@ -238,7 +249,10 @@ class _SettingsPageState extends State<SettingsPage> {
                         border: Border.all(color: Theme.of(context).dividerColor),
                       ),
                     ),
-                    onTap: _openColorPicker,
+                    onTap: () {
+                      _performVibration();
+                      _openColorPicker();
+                    },
                   ),
                 ],
               ),
@@ -263,10 +277,7 @@ class _SettingsPageState extends State<SettingsPage> {
               title: const Text('Developer Options'),
               trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 18),
               onTap: () async {
-                final bool? hasVibration = await Vibration.hasVibrator();
-                if (hasVibration == true) {
-                  Vibration.vibrate(duration: 18, amplitude: 60);
-                }
+                _performVibration();
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const DeveloperOptionsPage()),
                 );
@@ -327,6 +338,13 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
     _currentColor = widget.initialColor;
   }
 
+  void _performVibration() async {
+    final bool? hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) {
+      Vibration.vibrate(duration: 18, amplitude: 60);
+    }
+  }
+
   // Helper function to generate shades for the BlockPicker
   List<Color> _generateShades(Color color) {
     final List<Color> shades = [];
@@ -372,8 +390,22 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                 ),
                 Row(
                   children: [
-                    IconButton(icon: Icon(Icons.check, color: colorScheme.primary), onPressed: () => Navigator.of(context).pop(_currentColor)),
-                    IconButton(icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant), onPressed: () => Navigator.of(context).pop()),
+                    IconButton(
+                      icon: Icon(Icons.check, color: colorScheme.primary),
+                      onPressed: () {
+                        _performVibration();
+                        Navigator.of(context).pop(_currentColor);
+                      },
+                      style: IconButton.styleFrom(splashFactory: InkSparkle.splashFactory),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant),
+                      onPressed: () {
+                        _performVibration();
+                        Navigator.of(context).pop();
+                      },
+                      style: IconButton.styleFrom(splashFactory: InkSparkle.splashFactory),
+                    ),
                   ],
                 )
               ],
@@ -397,6 +429,7 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                       _selectedPickerType == _ColorPickerType.wheel,
                     ],
                     onPressed: (index) {
+                      _performVibration();
                       setState(() {
                         _selectedPickerType = _ColorPickerType.values[index];
                       });
@@ -438,6 +471,7 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                 IconButton(
                   icon: Icon(Icons.copy, size: 20, color: colorScheme.primary),
                   onPressed: () {
+                    _performVibration();
                     Clipboard.setData(ClipboardData(text: '#${_currentColor.value.toRadixString(16).substring(2).toUpperCase()}'));
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -457,12 +491,20 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () {
+                    _performVibration();
+                    Navigator.of(context).pop();
+                  },
+                  style: TextButton.styleFrom(splashFactory: InkSparkle.splashFactory),
                   child: Text('CANCEL', style: TextStyle(color: colorScheme.primary)),
                 ),
                 const SizedBox(width: 8),
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(_currentColor),
+                  onPressed: () {
+                    _performVibration();
+                    Navigator.of(context).pop(_currentColor);
+                  },
+                  style: TextButton.styleFrom(splashFactory: InkSparkle.splashFactory),
                   child: Text('OK', style: TextStyle(color: colorScheme.primary)),
                 ),
               ],
@@ -492,7 +534,10 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: changeColor,
+                    onTap: () {
+                      _performVibration();
+                      changeColor();
+                    },
                     borderRadius: BorderRadius.circular(50),
                     child: AnimatedOpacity(
                       duration: const Duration(milliseconds: 210),
@@ -532,7 +577,10 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: changeColor,
+                    onTap: () {
+                      _performVibration();
+                      changeColor();
+                    },
                     borderRadius: BorderRadius.circular(50),
                     child: AnimatedOpacity(
                       duration: const Duration(milliseconds: 210),
@@ -567,7 +615,10 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                   height: 280, // Adjust height as needed
                   child: ColorPicker(
                     pickerColor: _currentColor,
-                    onColorChanged: (color) => setState(() => _currentColor = color),
+                    onColorChanged: (color) {
+                      _performVibration();
+                      setState(() => _currentColor = color);
+                    },
                     colorPickerWidth: 220, // Adjust as needed
                     pickerAreaHeightPercent: 0.6, // Adjusted from 0.7 to 0.6
                     enableAlpha: false, // Alpha is not in the target UI
@@ -583,7 +634,10 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                   height: 100, // Adjust as needed
                   child: BlockPicker(
                     pickerColor: _currentColor, // This will highlight the selected color if it's in the swatches
-                    onColorChanged: (color) => setState(() => _currentColor = color),
+                    onColorChanged: (color) {
+                      _performVibration();
+                      setState(() => _currentColor = color);
+                    },
                     availableColors: _generateShades(_currentColor), // Dynamically generate shades
                     layoutBuilder: (builderContext, colors, child) {
                       return GridView.count(
@@ -609,7 +663,10 @@ class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
                             child: Material(
                               color: Colors.transparent,
                               child: InkWell(
-                                onTap: changeColor,
+                                onTap: () {
+                                  _performVibration();
+                                  changeColor();
+                                },
                                 borderRadius: BorderRadius.circular(50),
                                 child: AnimatedOpacity(
                                   duration: const Duration(milliseconds: 210),
@@ -663,6 +720,8 @@ class DeveloperOptionsPage extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
                     textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                    elevation: 4.0,
+                    splashFactory: InkSparkle.splashFactory,
                   ),
                   onPressed: () async {
                     final bool? hasVibration = await Vibration.hasVibrator();
@@ -676,11 +735,23 @@ class DeveloperOptionsPage extends StatelessWidget {
                         content: const Text('Are you sure you want to delete the local encrypted DB? This cannot be undone.'),
                         actions: [
                           TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
+                            onPressed: () async {
+                              final bool? hasVibration = await Vibration.hasVibrator();
+                              if (hasVibration == true) {
+                                Vibration.vibrate(duration: 18, amplitude: 60);
+                              }
+                              Navigator.of(context).pop(false);
+                            },
                             child: const Text('Cancel'),
                           ),
                           TextButton(
-                            onPressed: () => Navigator.of(context).pop(true),
+                            onPressed: () async {
+                              final bool? hasVibration = await Vibration.hasVibrator();
+                              if (hasVibration == true) {
+                                Vibration.vibrate(duration: 18, amplitude: 60);
+                              }
+                              Navigator.of(context).pop(true);
+                            },
                             child: const Text('Delete'),
                           ),
                         ],
@@ -688,17 +759,33 @@ class DeveloperOptionsPage extends StatelessWidget {
                     );
                     if (confirmed == true) {
                       final dbPath = await getDatabasesPath();
-                      final path = join(dbPath, 'songs_encrypted.db');
-                      await deleteDatabase(path);
+                      final pathEnglish = join(dbPath, 'songs_encrypted.db');
+                      final pathKannada = join(dbPath, 'kannada_songs_encrypted.db');
+                      await deleteDatabase(pathEnglish);
+                      await deleteDatabase(pathKannada);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Local encrypted DB deleted! Restart the app to re-sync.')),
+                          const SnackBar(content: Text('Local encrypted DBs deleted! Restart the app to re-sync.')),
                         );
                       }
                     }
                   },
                 ),
               ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, color: Colors.blueGrey, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This will delete all locally stored songs from the encrypted DB. Connect to the internet to re-download the songs and go offline again.',
+                    style: TextStyle(fontSize: 13, color: Colors.blueGrey),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

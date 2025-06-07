@@ -44,7 +44,7 @@ class AboutDeveloper extends StatelessWidget {
             const SizedBox(height: 16),
 
             const Text(
-              "𝘐'𝘮 𝘢 𝘊𝘺𝘣𝘦𝘳 𝘚𝘦𝘤𝘶𝘳𝘪𝘵𝘺 𝘚𝘵𝘶𝘥𝘦𝘯𝘵, 𝘸𝘪𝘵𝘩 𝘢 𝘱𝘢𝘴𝘴𝘪𝘰𝘯 𝘧𝘰𝘳 𝘚𝘰𝘧𝘵𝘸𝘢𝘳𝘦 \n𝘢𝘯𝘥 𝘍𝘭𝘶𝘵𝘵𝘦𝘳 𝘋𝘦𝘷𝘦𝘭𝘰𝘱𝘮𝘦𝘯𝘵.",
+              "I'𝘮 a Tech Support Engineer, with a passion for Cybersec, Software and Flutter Development.",
               style: TextStyle(color: Colors.grey),
               textAlign: TextAlign.center,
             ),
@@ -55,22 +55,22 @@ class AboutDeveloper extends StatelessWidget {
               children: [
                 IconButton(
                   icon: const FaIcon(FontAwesomeIcons.github),
-                  onPressed: () => _launchURL('https://github.com/Reynold29'),
+                  onPressed: () => _launchURL('https://github.com/Reynold29', context),
                 ),
                 const SizedBox(width: 16),
                 IconButton(
                   icon: const Icon(Icons.telegram),
-                  onPressed: () => _launchURL('https://t.me/Reynold29'), 
+                  onPressed: () => _launchURL('https://t.me/Reynold29', context), 
                 ),
                 const SizedBox(width: 16),
                 IconButton(
                   icon: const FaIcon(FontAwesomeIcons.circleUser),
-                  onPressed: () => _launchURL('https://portfolio-reynold29.vercel.app/'), 
+                  onPressed: () => _launchURL('https://portfolio-reynold29.vercel.app/', context), 
                 ),
                 const SizedBox(width: 16),
                 IconButton(
                   icon: const FaIcon(FontAwesomeIcons.globe),
-                  onPressed: () => _launchURL('https://projects.reyziehomelab.com/linkfree/index.html'), 
+                  onPressed: () => _launchURL('https://projects.reyziehomelab.com/linkfree/index.html', context), 
                 ),
               ],
             ),
@@ -80,11 +80,36 @@ class AboutDeveloper extends StatelessWidget {
     );
   }
 
-  Future<void> _launchURL(String url) async {
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url));
-    } else {
-      // Debug Area
+  Future<void> _launchURL(String url, BuildContext context) async {
+    final uri = Uri.parse(url);
+    try {
+      // Always try in-app webview first for a more integrated experience
+      final bool launchedInApp = await launchUrl(uri, mode: LaunchMode.inAppWebView);
+      
+      if (!launchedInApp) {
+        // If in-app webview failed, try external application as a fallback
+        final bool launchedExternally = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!launchedExternally) {
+          // Both attempts failed
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to launch URL externally: $url'),
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred while launching URL: $url - $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
     }
   }
 } 

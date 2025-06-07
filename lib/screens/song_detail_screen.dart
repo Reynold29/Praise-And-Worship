@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vibration/vibration.dart';
+import 'package:provider/provider.dart';
+import 'package:worshipcompanion/widgets/favorite_provider.dart';
 
 class SongDetailScreen extends StatefulWidget {
   final Map<String, dynamic> tabData; // expects the parsed 'tab' object from your API
@@ -15,6 +19,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   int _transposeSemitones = 0;
   String? _originalKeyFromDB;
   String? _derivedKeyFromChords;
+  double _fontSize = 16;
+  bool _showFontSizeControls = false;
 
   List<dynamic> get _lines => widget.tabData['lines'] as List<dynamic>;
   String get _title => widget.tabData['title'] ?? 'Untitled';
@@ -99,11 +105,22 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     return transposedRoot + quality + (transposedBass != null ? '/${_transposeNote(transposedBass, 0)}' : '');
   }
 
+  void _performVibration() async {
+    final bool? hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) {
+      Vibration.vibrate(duration: 18, amplitude: 60);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final bool hasAnyChords = true; // Always show controls
+    final favoriteProvider = Provider.of<FavoriteProvider>(context);
+    final String songId = widget.tabData['id'] as String;
+    final String songCategory = widget.tabData['category'] as String;
+    final bool isFavorite = favoriteProvider.isFavorite(songCategory, songId);
 
     return Scaffold(
       appBar: AppBar(
@@ -116,138 +133,316 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         backgroundColor: colorScheme.surface,
         elevation: 1,
         iconTheme: IconThemeData(color: colorScheme.onSurface),
+        actions: [
+          IconButton(
+            icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border, color: isFavorite ? colorScheme.primary : colorScheme.onSurfaceVariant),
+            tooltip: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+            onPressed: () {
+              _performVibration();
+              favoriteProvider.toggleFavorite(songCategory, songId);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(isFavorite ? 'Removed from favorites' : 'Added to favorites'),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       backgroundColor: colorScheme.background,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Author Name
-            if (_artistName.isNotEmpty && _artistName != 'UNKNOWN')
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4.0),
-                child: Text(
-                  'Author: $_artistName',
-                  style: textTheme.titleMedium?.copyWith(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500, fontStyle: FontStyle.italic),
-                ),
-              ),
-            // Key Info
-            if (originalDisplayKey != "N/A" || hasAnyChords)
-              Padding(
-                padding: EdgeInsets.only(bottom: 16.0, top: _artistName.isNotEmpty && _artistName != 'UNKNOWN' ? 4.0 : 0),
-                child: Text(
-                  'Key: $originalDisplayKey',
-                  style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500, fontStyle: FontStyle.italic),
-                ),
-              ),
-            
-            // Controls Bar
-            if (hasAnyChords)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end, 
-                  children: [
-                    // Show/Hide Chords Button
-                    SizedBox(
-                      height: _kControlsButtonHeight,
-                      child: TextButton.icon(
-                        icon: Icon(_showChords ? Icons.music_off_rounded : Icons.music_note_rounded, color: colorScheme.primary, size: 20),
-                        label: Row(
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Author Name
+                if (_artistName.isNotEmpty && _artistName != 'UNKNOWN')
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4.0),
+                    child: Text(
+                      'Author: $_artistName',
+                      style: textTheme.titleMedium?.copyWith(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                // Key Info
+                if (originalDisplayKey != "N/A" || hasAnyChords)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 16.0, top: _artistName.isNotEmpty && _artistName != 'UNKNOWN' ? 4.0 : 0),
+                    child: Text(
+                      'Key: $displayKey',
+                      style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                
+                // Controls Bar
+                if (hasAnyChords)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end, 
+                      children: [
+                        // Show/Hide Chords Button
+                        SizedBox(
+                          height: _kControlsButtonHeight,
+                          child: TextButton.icon(
+                            icon: Icon(_showChords ? Icons.music_off_rounded : Icons.music_note_rounded, color: colorScheme.primary, size: 20),
+                            label: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_showChords ? 'Hide Chords' : 'Show Chords', style: textTheme.labelMedium?.copyWith(color: colorScheme.primary, fontWeight: FontWeight.w600)),
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.secondaryContainer,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text('BETA', style: textTheme.labelSmall?.copyWith(color: colorScheme.onSecondaryContainer, fontSize: 8, fontWeight: FontWeight.bold)),
+                                )
+                              ],
+                            ),
+                            onPressed: () {
+                              _performVibration();
+                              setState(() => _showChords = !_showChords);
+                            },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12), 
+                              backgroundColor: colorScheme.primaryContainer.withOpacity(0.3),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), 
+                              minimumSize: const Size(0, _kControlsButtonHeight), 
+                              splashFactory: InkSparkle.splashFactory,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        // Transpose Controls Group
+                        Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(_showChords ? 'Hide Chords' : 'Show Chords', style: textTheme.labelMedium?.copyWith(color: colorScheme.primary, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 4),
+                            _buildTransposeButton(context, icon: Icons.remove, onTap: () {
+                              _performVibration();
+                              setState(() => _transposeSemitones--);
+                            }, tooltip: "Transpose Down"),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              height: _kControlsButtonHeight,
+                              alignment: Alignment.center, 
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0), 
                               decoration: BoxDecoration(
-                                color: colorScheme.secondaryContainer,
-                                borderRadius: BorderRadius.circular(4),
+                                color: colorScheme.surfaceVariant.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Text('BETA', style: textTheme.labelSmall?.copyWith(color: colorScheme.onSecondaryContainer, fontSize: 8, fontWeight: FontWeight.bold)),
-                            )
+                              child: Text(
+                                '${_transposeSemitones > 0 ? '+' : ''}${_transposeSemitones}',
+                                style: textTheme.labelLarge?.copyWith(color: colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                            ),
+                            _buildTransposeButton(context, icon: Icons.add, onTap: () {
+                              _performVibration();
+                              setState(() => _transposeSemitones++);
+                            }, tooltip: "Transpose Up"),
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+
+                Card(
+                  elevation: 1,
+                  margin: EdgeInsets.zero,
+                  color: colorScheme.surfaceContainerLowest,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                       children: _buildSongLines(context, hasAnyChords, _fontSize),
+                    ),
+                  ),
+                ),
+                if (_authorForCopyright.isNotEmpty && _authorForCopyright != 'UNKNOWN')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 20.0, bottom: 5.0),
+                    child: Center(
+                      child: RichText(
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '© ',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant.withOpacity(0.6),
+                                fontSize: 18, // Larger symbol
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            TextSpan(
+                              text: _authorForCopyright,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant.withOpacity(0.6),
+                                fontSize: textTheme.bodySmall?.fontSize,
+                              ),
+                            ),
                           ],
                         ),
-                        onPressed: () => setState(() => _showChords = !_showChords),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12), 
-                          backgroundColor: colorScheme.primaryContainer.withOpacity(0.3),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), 
-                          minimumSize: const Size(0, _kControlsButtonHeight), 
-                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    // Transpose Controls Group
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildTransposeButton(context, icon: Icons.remove, onTap: () => setState(() => _transposeSemitones--), tooltip: "Transpose Down"),
-                        Container(
-                          height: _kControlsButtonHeight,
-                          alignment: Alignment.center, 
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0), 
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceVariant.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '${_transposeSemitones > 0 ? '+' : ''}${_transposeSemitones}',
-                            style: textTheme.labelLarge?.copyWith(color: colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 15),
-                          ),
-                        ),
-                        _buildTransposeButton(context, icon: Icons.add, onTap: () => setState(() => _transposeSemitones++), tooltip: "Transpose Up"),
-                      ],
-                    )
+                  ),
+              ],
+            ),
+          ),
+          if (_showFontSizeControls)
+            Positioned(
+              bottom: 90,
+              right: 24,
+              child: Material(
+                color: colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(24),
+                elevation: 6,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.remove, size: 20),
+                      tooltip: 'Decrease font size',
+                      onPressed: () {
+                        _performVibration();
+                        setState(() {
+                          if (_fontSize > 12) _fontSize -= 2;
+                        });
+                      },
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                      child: Text(
+                        _fontSize.toInt().toString(),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.add, size: 20),
+                      tooltip: 'Increase font size',
+                      onPressed: () {
+                        _performVibration();
+                        setState(() {
+                          if (_fontSize < 32) _fontSize += 2;
+                        });
+                      },
+                    ),
                   ],
                 ),
               ),
-
-            Card(
-              elevation: 1,
-              margin: EdgeInsets.zero,
-              color: colorScheme.surfaceContainerLowest,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                   children: _buildSongLines(context, hasAnyChords),
-                ),
-              ),
             ),
-            if (_authorForCopyright.isNotEmpty && _authorForCopyright != 'UNKNOWN')
-              Padding(
-                padding: const EdgeInsets.only(top: 20.0, bottom: 5.0),
-                child: Center(
-                  child: RichText(
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: '© ',
-                          style: textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant.withOpacity(0.6),
-                            fontSize: 18, // Larger symbol
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        TextSpan(
-                          text: _authorForCopyright,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant.withOpacity(0.6),
-                            fontSize: textTheme.bodySmall?.fontSize,
-                          ),
-                        ),
-                      ],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          _performVibration();
+          _showFontSizeBottomSheet(context);
+        },
+        child: Icon(Icons.format_size_rounded),
+        backgroundColor: colorScheme.primaryContainer,
+        foregroundColor: colorScheme.onPrimaryContainer,
+        shape: const CircleBorder(),
+        elevation: 6.0,
+      ),
+    );
+  }
+
+  void _showFontSizeBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            final colorScheme = Theme.of(context).colorScheme;
+            final textTheme = Theme.of(context).textTheme;
+            return Container(
+              padding: const EdgeInsets.all(20.0),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(25.0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withOpacity(0.2),
+                    blurRadius: 10,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Font Size',
+                    style: textTheme.titleLarge?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.remove, size: 28, color: colorScheme.primary),
+                        tooltip: 'Decrease font size',
+                        onPressed: () {
+                          _performVibration();
+                          setModalState(() {
+                            setState(() {
+                              if (_fontSize > 12) _fontSize -= 2;
+                            });
+                          });
+                        },
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Text(
+                          _fontSize.toInt().toString(),
+                          style: textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.add, size: 28, color: colorScheme.primary),
+                        tooltip: 'Increase font size',
+                        onPressed: () {
+                          _performVibration();
+                          setModalState(() {
+                            setState(() {
+                              if (_fontSize < 32) _fontSize += 2;
+                            });
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      _performVibration();
+                      Navigator.pop(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: colorScheme.primary,
+                      foregroundColor: colorScheme.onPrimary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                    ),
+                    child: Text('Done'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -274,7 +469,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     );
   }
 
-  List<Widget> _buildSongLines(BuildContext context, bool hasAnyChords) {
+  List<Widget> _buildSongLines(BuildContext context, bool hasAnyChords, double fontSize) {
     final List<Widget> widgets = [];
     List<Map<String, dynamic>>? pendingChords;
     final colorScheme = Theme.of(context).colorScheme;
@@ -302,6 +497,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
               chords: _showChords && hasAnyChords ? pendingChords : null,
               colorScheme: colorScheme,
               textTheme: textTheme,
+              fontSize: fontSize,
             ),
           )
         );
@@ -318,6 +514,7 @@ class ChordLyricLine extends StatelessWidget {
   final List<Map<String, dynamic>>? chords;
   final ColorScheme colorScheme;
   final TextTheme textTheme;
+  final double fontSize;
 
   const ChordLyricLine({
     super.key,
@@ -325,13 +522,14 @@ class ChordLyricLine extends StatelessWidget {
     this.chords,
     required this.colorScheme,
     required this.textTheme,
+    this.fontSize = 16,
   });
 
   @override
   Widget build(BuildContext context) {
     final lyricStyle = textTheme.bodyLarge?.copyWith(
       color: colorScheme.onSurfaceVariant,
-      fontSize: 17,
+      fontSize: fontSize,
       height: 1.6,
       letterSpacing: 0.2,
     );
@@ -339,7 +537,7 @@ class ChordLyricLine extends StatelessWidget {
       color: colorScheme.primary,
       fontWeight: FontWeight.bold,
       letterSpacing: 0.5, 
-      fontSize: 15, 
+      fontSize: fontSize - 1, 
     );
 
     if (lyric.trim().isEmpty && (chords == null || chords!.isEmpty)) {

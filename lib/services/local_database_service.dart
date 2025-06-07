@@ -4,14 +4,18 @@ import 'package:path/path.dart';
 import 'dart:math';
 import '../models/song_model.dart';
 import 'supabase_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LocalDatabaseService {
   static final LocalDatabaseService instance = LocalDatabaseService._();
   static const _dbName = 'songs_encrypted.db';
   static const _dbPasswordKey = 'db_encryption_key';
   static const _storage = FlutterSecureStorage();
+  static const _dbNameKannada = 'kannada_songs_encrypted.db';
+  static const _dbPasswordKeyKannada = 'db_encryption_key_kannada';
 
   Database? _db;
+  Database? _dbKannada;
 
   LocalDatabaseService._();
 
@@ -54,6 +58,43 @@ class LocalDatabaseService {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           // Add chords column if upgrading from v1
+          await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
+        }
+      },
+    );
+  }
+
+  Future<Database> _initKannadaDb() async {
+    String? key = await _storage.read(key: _dbPasswordKeyKannada);
+    if (key == null) {
+      key = _generateRandomKey();
+      await _storage.write(key: _dbPasswordKeyKannada, value: key);
+    }
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _dbNameKannada);
+    return await openDatabase(
+      path,
+      password: key,
+      version: 2,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE songs (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            lyrics TEXT NOT NULL,
+            chords TEXT,
+            author_name TEXT NOT NULL,
+            language TEXT NOT NULL,
+            genre TEXT,
+            key_signature TEXT,
+            bpm INTEGER,
+            youtube_link TEXT,
+            updated_at TEXT
+          )
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
           await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
         }
       },
@@ -106,6 +147,11 @@ class LocalDatabaseService {
   /// Sync all songs from Supabase to the local encrypted DB
   Future<void> syncFromSupabase() async {
     try {
+      // Defensive: Check if Supabase client is initialized
+      if (Supabase.instance.client == null) {
+        print('Supabase client is null, skipping syncFromSupabase.');
+        return;
+      }
       // Fetch all songs from Supabase (adjust table/key as needed)
       List<Song> supabaseSongs = await SupabaseService.instance.getSongsByCategory('english_data');
       // Upsert all songs
@@ -116,6 +162,57 @@ class LocalDatabaseService {
     } catch (e) {
       print('Supabase sync failed: $e');
     }
+  }
+
+  Future<void> upsertKannadaSongs(List<Song> songs) async {
+    final db = await kannadaDatabase;
+    final batch = db.batch();
+    for (final song in songs) {
+      batch.insert(
+        'songs',
+        _songToMap(song),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<Song>> fetchAllKannadaSongs() async {
+    final db = await kannadaDatabase;
+    final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
+    return maps.map((map) => _songFromMap(map)).toList();
+  }
+
+  Future<void> clearAllKannadaSongs() async {
+    final db = await kannadaDatabase;
+    await db.delete('songs');
+  }
+
+  Future<void> syncKannadaFromSupabase() async {
+    try {
+      if (Supabase.instance.client == null) {
+        print('Supabase client is null, skipping syncKannadaFromSupabase.');
+        return;
+      }
+      List<Song> supabaseSongs = await SupabaseService.instance.getSongsByCategory('kannada_data');
+      await upsertKannadaSongs(supabaseSongs);
+      final supabaseIds = supabaseSongs.map((s) => s.id).toList();
+      final db = await kannadaDatabase;
+      if (supabaseIds.isEmpty) {
+        await db.delete('songs');
+      } else {
+        final placeholders = List.filled(supabaseIds.length, '?').join(',');
+        await db.delete('songs', where: 'id NOT IN ($placeholders)', whereArgs: supabaseIds);
+      }
+    } catch (e) {
+      print('Supabase sync (Kannada) failed: $e');
+    }
+  }
+
+  Future<Database> get kannadaDatabase async {
+    if (_dbKannada != null) return _dbKannada!;
+    _dbKannada = await _initKannadaDb();
+    return _dbKannada!;
   }
 
   // --- Song <-> Map helpers ---
@@ -133,18 +230,21 @@ class LocalDatabaseService {
     'updated_at': song.updatedAt.toIso8601String(),
   };
 
-  Song _songFromMap(Map<String, dynamic> map) => Song(
-    id: map['id'] as String,
-    createdAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
-    updatedAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
-    title: map['title'] as String,
-    lyrics: map['lyrics'] as String,
-    chords: map['chords'] as String?,
-    category: map['language'] as String? ?? '', // If you use a dedicated language field, change this accordingly
-    authorName: map['author_name'] as String?,
-    genre: map['genre'] as String?,
-    keySignature: map['key_signature'] as String?,
-    bpm: map['bpm'] as int?,
-    youtubeLink: map['youtube_link'] as String?,
-  );
+  Song _songFromMap(Map<String, dynamic> map) {
+    print('[LocalDatabaseService] Mapping song from DB: ID: ${map['id']}, Language/Category: ${map['language']}');
+    return Song(
+      id: map['id'] as String,
+      createdAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
+      title: map['title'] as String,
+      lyrics: map['lyrics'] as String,
+      chords: map['chords'] as String?,
+      category: (map['language'] as String? ?? 'unknown_data'), // Ensure category is explicitly taken from 'language' and defaults to 'unknown_data'
+      authorName: map['author_name'] as String?,
+      genre: map['genre'] as String?,
+      keySignature: map['key_signature'] as String?,
+      bpm: map['bpm'] as int?,
+      youtubeLink: map['youtube_link'] as String?,
+    );
+  }
 } 

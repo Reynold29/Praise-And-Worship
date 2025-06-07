@@ -227,6 +227,7 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                             style: TextButton.styleFrom(
                               foregroundColor: Colors.white.withOpacity(0.92),
                               textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                              splashFactory: InkSparkle.splashFactory,
                             ),
                             child: const Text('Skip for now'),
                           ),

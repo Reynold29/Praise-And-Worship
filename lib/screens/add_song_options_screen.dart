@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:worshipcompanion/screens/add_manual_song_screen.dart'; // TODO: Create AddManualSongScreen
 import 'package:vibration/vibration.dart';
+import 'scan_song_screen.dart'; // Add this import for the new screen
 
 class AddSongOptionsScreen extends StatelessWidget {
   const AddSongOptionsScreen({super.key});
+
+  void _performVibration() async {
+    final bool? hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) {
+      Vibration.vibrate(duration: 18, amplitude: 60);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,13 +31,14 @@ class AddSongOptionsScreen extends StatelessWidget {
         children: [
           _buildOptionCard(
             context: context,
-            icon: Icons.document_scanner_outlined,
-            title: 'Scan Song from Image',
-            subtitle: 'Automatically extract lyrics and chords from a picture.',
+            icon: Icons.auto_awesome,
+            title: 'AI Image or Book Scan',
+            subtitle: 'Use AI to scan and auto-extract songs from an image or book.',
             onTap: () {
-              // TODO: Implement Scan Song functionality
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Scan Song from Image - Coming Soon!')),
+              _performVibration();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ScanSongScreen()),
               );
             },
           ),
@@ -40,6 +49,7 @@ class AddSongOptionsScreen extends StatelessWidget {
             title: 'Add Lyrics Manually',
             subtitle: 'Type or paste lyrics and optionally add chords.',
             onTap: () {
+              _performVibration();
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const AddManualSongScreen()),
@@ -53,6 +63,7 @@ class AddSongOptionsScreen extends StatelessWidget {
             title: 'Search Online & Add',
             subtitle: 'Find songs from online resources to add to your companion.',
             onTap: () {
+              _performVibration();
               // TODO: Implement Search Online functionality
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Search Online & Add - Coming Soon!')),
@@ -80,10 +91,6 @@ class AddSongOptionsScreen extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: InkWell(
         onTap: () async {
-          final bool? hasVibration = await Vibration.hasVibrator();
-          if (hasVibration == true) {
-            Vibration.vibrate(duration: 18, amplitude: 60);
-          }
           onTap();
         },
         borderRadius: BorderRadius.circular(12.0),
