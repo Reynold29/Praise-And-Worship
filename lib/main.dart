@@ -19,21 +19,34 @@ Future<void> main() async {
   // Initialize inditrans for transliteration support
   await inditrans.init();
 
-  // By default, dotenv.load() looks for ".env" in the project root.
-  // Ensure your .env file is in the project root, not in lib/
-  await dotenv.load(fileName: ".env");
-
   // Defensive: Track if Supabase is initialized
   bool supabaseInitialized = false;
+  
+  // Try to load .env file, but don't fail if it doesn't exist
   try {
-    await Supabase.initialize(
-      url: dotenv.env['SUPABASE_URL']!, // Uses the URL from .env
-      anonKey: dotenv.env['SUPABASE_ANON_KEY']!, // Uses the "anon" key from .env
-    );
-    supabaseInitialized = true;
+    await dotenv.load(fileName: ".env");
   } catch (e) {
-    print('Supabase initialization failed: '
-        '[31m$e[0m');
+    print('Warning: Could not load .env file: $e');
+    // Continue without .env file - app should work offline
+  }
+
+  // Try to initialize Supabase, but don't block if it fails
+  try {
+    final supabaseUrl = dotenv.env['SUPABASE_URL'];
+    final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+    
+    if (supabaseUrl != null && supabaseAnonKey != null) {
+      await Supabase.initialize(
+        url: supabaseUrl,
+        anonKey: supabaseAnonKey,
+      );
+      supabaseInitialized = true;
+      print('Supabase initialized successfully');
+    } else {
+      print('Supabase credentials not found in .env file');
+    }
+  } catch (e) {
+    print('Supabase initialization failed: $e');
     // Proceed without Supabase; local DB will be used
   }
 
@@ -45,16 +58,24 @@ Future<void> main() async {
 
   // Initialize FavoriteProvider and load favorites
   final favoriteProvider = FavoriteProvider();
-  // No need to await favoriteProvider._loadFavorites() as it's called in its constructor
 
   // --- Sync local DB from Supabase if online and Supabase is initialized ---
-  final connectivityResult = await Connectivity().checkConnectivity();
-  if (connectivityResult != ConnectivityResult.none && supabaseInitialized) {
-    await LocalDatabaseService.instance.syncFromSupabase();
-  }
-  // Start real-time listener only if Supabase is initialized
+  // Make this non-blocking so app can start even without internet
   if (supabaseInitialized) {
-    RealtimeSyncService.instance.startListening();
+    try {
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult != ConnectivityResult.none) {
+        // Run sync in background without blocking app startup
+        LocalDatabaseService.instance.syncFromSupabase().catchError((e) {
+          print('Background sync failed: $e');
+        });
+      }
+      // Start real-time listener only if Supabase is initialized
+      RealtimeSyncService.instance.startListening();
+    } catch (e) {
+      print('Connectivity check or sync failed: $e');
+      // Continue without sync
+    }
   }
 
   runApp(

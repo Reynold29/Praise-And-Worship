@@ -5,6 +5,7 @@ import 'dart:math';
 import '../models/song_model.dart';
 import 'supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class LocalDatabaseService {
   static final LocalDatabaseService instance = LocalDatabaseService._();
@@ -21,84 +22,100 @@ class LocalDatabaseService {
 
   Future<Database> get database async {
     if (_db != null) return _db!;
-    _db = await _initDb();
+    _db = await _initDb().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        print('Database initialization timed out');
+        throw Exception('Database initialization timed out');
+      },
+    );
     return _db!;
   }
 
   Future<Database> _initDb() async {
-    // Get or generate encryption key
-    String? key = await _storage.read(key: _dbPasswordKey);
-    if (key == null) {
-      key = _generateRandomKey();
-      await _storage.write(key: _dbPasswordKey, value: key);
+    try {
+      // Get or generate encryption key
+      String? key = await _storage.read(key: _dbPasswordKey);
+      if (key == null) {
+        key = _generateRandomKey();
+        await _storage.write(key: _dbPasswordKey, value: key);
+      }
+      final dbPath = await getDatabasesPath();
+      final path = join(dbPath, _dbName);
+      return await openDatabase(
+        path,
+        password: key,
+        version: 2,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE songs (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              lyrics TEXT NOT NULL,
+              chords TEXT,
+              author_name TEXT NOT NULL,
+              language TEXT NOT NULL,
+              genre TEXT,
+              key_signature TEXT,
+              bpm INTEGER,
+              youtube_link TEXT,
+              updated_at TEXT
+            )
+          ''');
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            // Add chords column if upgrading from v1
+            await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
+          }
+        },
+      );
+    } catch (e) {
+      print('Error initializing English database: $e');
+      rethrow;
     }
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
-    return await openDatabase(
-      path,
-      password: key,
-      version: 2,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE songs (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            lyrics TEXT NOT NULL,
-            chords TEXT,
-            author_name TEXT NOT NULL,
-            language TEXT NOT NULL,
-            genre TEXT,
-            key_signature TEXT,
-            bpm INTEGER,
-            youtube_link TEXT,
-            updated_at TEXT
-          )
-        ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          // Add chords column if upgrading from v1
-          await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
-        }
-      },
-    );
   }
 
   Future<Database> _initKannadaDb() async {
-    String? key = await _storage.read(key: _dbPasswordKeyKannada);
-    if (key == null) {
-      key = _generateRandomKey();
-      await _storage.write(key: _dbPasswordKeyKannada, value: key);
+    try {
+      String? key = await _storage.read(key: _dbPasswordKeyKannada);
+      if (key == null) {
+        key = _generateRandomKey();
+        await _storage.write(key: _dbPasswordKeyKannada, value: key);
+      }
+      final dbPath = await getDatabasesPath();
+      final path = join(dbPath, _dbNameKannada);
+      return await openDatabase(
+        path,
+        password: key,
+        version: 2,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE songs (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              lyrics TEXT NOT NULL,
+              chords TEXT,
+              author_name TEXT NOT NULL,
+              language TEXT NOT NULL,
+              genre TEXT,
+              key_signature TEXT,
+              bpm INTEGER,
+              youtube_link TEXT,
+              updated_at TEXT
+            )
+          ''');
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
+          }
+        },
+      );
+    } catch (e) {
+      print('Error initializing Kannada database: $e');
+      rethrow;
     }
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbNameKannada);
-    return await openDatabase(
-      path,
-      password: key,
-      version: 2,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE songs (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            lyrics TEXT NOT NULL,
-            chords TEXT,
-            author_name TEXT NOT NULL,
-            language TEXT NOT NULL,
-            genre TEXT,
-            key_signature TEXT,
-            bpm INTEGER,
-            youtube_link TEXT,
-            updated_at TEXT
-          )
-        ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
-        }
-      },
-    );
   }
 
   String _generateRandomKey() {
@@ -124,9 +141,14 @@ class LocalDatabaseService {
   }
 
   Future<List<Song>> fetchAllSongs() async {
-    final db = await database;
-    final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
-    return maps.map((map) => _songFromMap(map)).toList();
+    try {
+      final db = await database;
+      final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
+      return maps.map((map) => _songFromMap(map)).toList();
+    } catch (e) {
+      print('Error fetching all songs: $e');
+      return []; // Return empty list instead of throwing
+    }
   }
 
   Future<void> deleteSongsNotInIdList(List<String> idsToKeep) async {
@@ -152,6 +174,14 @@ class LocalDatabaseService {
         print('Supabase client is null, skipping syncFromSupabase.');
         return;
       }
+      
+      // Check connectivity before attempting sync
+      final connectivity = await Connectivity().checkConnectivity();
+      if (connectivity == ConnectivityResult.none) {
+        print('No internet connection, skipping syncFromSupabase.');
+        return;
+      }
+      
       // Fetch all songs from Supabase (adjust table/key as needed)
       List<Song> supabaseSongs = await SupabaseService.instance.getSongsByCategory('english_data');
       // Upsert all songs
@@ -159,8 +189,10 @@ class LocalDatabaseService {
       // Delete local songs not in Supabase
       final supabaseIds = supabaseSongs.map((s) => s.id).toList();
       await deleteSongsNotInIdList(supabaseIds);
+      print('Successfully synced ${supabaseSongs.length} songs from Supabase');
     } catch (e) {
       print('Supabase sync failed: $e');
+      // Don't rethrow - let the app continue working with local data
     }
   }
 
@@ -178,9 +210,14 @@ class LocalDatabaseService {
   }
 
   Future<List<Song>> fetchAllKannadaSongs() async {
-    final db = await kannadaDatabase;
-    final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
-    return maps.map((map) => _songFromMap(map)).toList();
+    try {
+      final db = await kannadaDatabase;
+      final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
+      return maps.map((map) => _songFromMap(map)).toList();
+    } catch (e) {
+      print('Error fetching all Kannada songs: $e');
+      return []; // Return empty list instead of throwing
+    }
   }
 
   Future<void> clearAllKannadaSongs() async {
@@ -194,6 +231,14 @@ class LocalDatabaseService {
         print('Supabase client is null, skipping syncKannadaFromSupabase.');
         return;
       }
+      
+      // Check connectivity before attempting sync
+      final connectivity = await Connectivity().checkConnectivity();
+      if (connectivity == ConnectivityResult.none) {
+        print('No internet connection, skipping syncKannadaFromSupabase.');
+        return;
+      }
+      
       List<Song> supabaseSongs = await SupabaseService.instance.getSongsByCategory('kannada_data');
       await upsertKannadaSongs(supabaseSongs);
       final supabaseIds = supabaseSongs.map((s) => s.id).toList();
@@ -204,14 +249,22 @@ class LocalDatabaseService {
         final placeholders = List.filled(supabaseIds.length, '?').join(',');
         await db.delete('songs', where: 'id NOT IN ($placeholders)', whereArgs: supabaseIds);
       }
+      print('Successfully synced ${supabaseSongs.length} Kannada songs from Supabase');
     } catch (e) {
       print('Supabase sync (Kannada) failed: $e');
+      // Don't rethrow - let the app continue working with local data
     }
   }
 
   Future<Database> get kannadaDatabase async {
     if (_dbKannada != null) return _dbKannada!;
-    _dbKannada = await _initKannadaDb();
+    _dbKannada = await _initKannadaDb().timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        print('Kannada database initialization timed out');
+        throw Exception('Kannada database initialization timed out');
+      },
+    );
     return _dbKannada!;
   }
 
