@@ -268,6 +268,24 @@ class LocalDatabaseService {
     return _dbKannada!;
   }
 
+  /// Removes unwanted Kannada songs based on title patterns and language/category.
+  Future<void> removeUnwantedKannadaSongs() async {
+    final db = await kannadaDatabase;
+    // Delete songs where the title contains unwanted English phrases (case-insensitive)
+    // or where the language/category is not 'kannada' or 'kannada_data'
+    await db.delete(
+      'songs',
+      where: "(LOWER(title) LIKE ? OR LOWER(title) LIKE ? OR LOWER(title) LIKE ?) OR (LOWER(language) NOT IN (?, ?))",
+      whereArgs: [
+        '%search christian lyrics%',
+        '%search christian%',
+        '%christian lyrics%',
+        'kannada',
+        'kannada_data'
+      ],
+    );
+  }
+
   // --- Song <-> Map helpers ---
   Map<String, dynamic> _songToMap(Song song) => {
     'id': song.id,
@@ -284,7 +302,6 @@ class LocalDatabaseService {
   };
 
   Song _songFromMap(Map<String, dynamic> map) {
-    print('[LocalDatabaseService] Mapping song from DB: ID: ${map['id']}, Language/Category: ${map['language']}');
     return Song(
       id: map['id'] as String,
       createdAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),

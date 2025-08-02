@@ -24,8 +24,15 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
   String? _error;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  
+  // Ensure search controller is properly initialized
+  void _initializeSearchController() {
+    _searchController.clear();
+    _searchQuery = '';
+  }
   String? _selectedLetter;
   double _fontSize = 16;
+  List<String> _availableAlphabet = [];
 
   // Main Kannada vowels and consonants for filtering (can be expanded)
   static const List<String> _kannadaAlphabet = [
@@ -34,17 +41,56 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
     'ಪ', 'ಫ', 'ಬ', 'ಭ', 'ಮ', 'ಯ', 'ರ', 'ಲ', 'ವ', 'ಶ', 'ಷ', 'ಸ', 'ಹ', 'ಳ', 'ಕ್ಷ', 'ಜ್ಞ'
   ];
 
+  // Generate available alphabet based on actual songs
+  void _generateAvailableAlphabet() {
+    final Set<String> availableLetters = <String>{};
+    
+    for (final song in _songs) {
+      if (song.title.isNotEmpty) {
+        final firstChar = song.title[0];
+        if (_kannadaAlphabet.contains(firstChar)) {
+          availableLetters.add(firstChar);
+        }
+      }
+    }
+    
+    // Sort the available letters according to the original alphabet order
+    _availableAlphabet = _kannadaAlphabet
+        .where((letter) => availableLetters.contains(letter))
+        .toList();
+    
+    // Clear selected letter if it's no longer available
+    if (_selectedLetter != null && !_availableAlphabet.contains(_selectedLetter)) {
+      _selectedLetter = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _initAndFetch();
+    _initializeSearchController();
     _searchController.addListener(_onSearchChanged);
+    _initAndFetch();
+    
+    // Add a post-frame callback to ensure search is cleared
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _initializeSearchController();
+      }
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Clear any cached text when dependencies change
+    _initializeSearchController();
   }
 
   void _onSearchChanged() {
@@ -86,6 +132,11 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       filtered = filtered.where((song) {
         return song.title.isNotEmpty && song.title[0] == _selectedLetter;
       }).toList();
+      
+      // If no songs found for selected letter, clear the selection
+      if (filtered.isEmpty) {
+        _selectedLetter = null;
+      }
     }
     _filteredSongs = filtered;
   }
@@ -96,14 +147,27 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       _error = null;
     });
     try {
+      // First, remove any unwanted songs from the database
+      await LocalDatabaseService.instance.removeUnwantedKannadaSongs();
+      
       final connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult != ConnectivityResult.none) {
         await LocalDatabaseService.instance.syncKannadaFromSupabase();
       }
       final fetchedSongs = await LocalDatabaseService.instance.fetchAllKannadaSongs();
       if (!mounted) return;
+      
+      // Filter out any unwanted songs that might still exist
+      final filteredSongs = fetchedSongs.where((song) {
+        final title = song.title.toLowerCase();
+        return !title.contains('search christian lyrics') && 
+               !title.contains('search christian') &&
+               !title.contains('christian lyrics');
+      }).toList();
+      
       setState(() {
-        _songs = fetchedSongs;
+        _songs = filteredSongs;
+        _generateAvailableAlphabet(); // Generate available alphabet based on actual songs
         _filterSongs();
         _isLoading = false;
       });
@@ -144,6 +208,12 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
+                    onTap: () {
+                      // Clear any unwanted cached text when user taps the search field
+                      if (_searchController.text.contains('christian') || _searchController.text.contains('lyrics')) {
+                        _searchController.clear();
+                      }
+                    },
                     decoration: InputDecoration(
                       hintText: 'Search songs...',
                       prefixIcon: Icon(Icons.search),
@@ -210,7 +280,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 10.0),
               children: [
-                ..._kannadaAlphabet.map((letter) => Padding(
+                ..._availableAlphabet.map((letter) => Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2.0),
                   child: ChoiceChip(
                     label: Text(letter, style: TextStyle(fontSize: 18)),

@@ -21,7 +21,6 @@ class SupabaseService {
       }
       final List<dynamic> responseData = response as List<dynamic>; 
       final songs = responseData.map((data) {
-        print('[SupabaseService] Processing data for categoryKey: $categoryKey, data: $data');
         return Song.fromJson(data as Map<String, dynamic>, categoryOverride: categoryKey);
       }).toList();
       return songs;
