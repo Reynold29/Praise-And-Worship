@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
 import 'package:worshipcompanion/screens/onboarding_screen.dart';
 import 'package:worshipcompanion/widgets/theme_provider.dart';
+import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -170,25 +171,43 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             useMaterial3: true,
             colorScheme: lightSchemeToUse,
             fontFamily: appFontFamily, // Apply font family to light theme
+            visualDensity: VisualDensity.adaptivePlatformDensity,
           ),
           darkTheme: ThemeData(
             useMaterial3: true,
             colorScheme: darkSchemeToUse,
             fontFamily: appFontFamily, // Apply font family to dark theme
+            visualDensity: VisualDensity.adaptivePlatformDensity,
           ),
           themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          builder: (context, child) {
+            final mq = MediaQuery.of(context);
+            final width = mq.size.width;
+            double baseScale = 1.0;
+            if (width < 340) {
+              baseScale = 0.88;
+            } else if (width < 360) {
+              baseScale = 0.92;
+            } else if (width < 400) {
+              baseScale = 0.96;
+            } else if (width < 440) {
+              baseScale = 0.98;
+            }
+            final userScale = mq.textScaleFactor;
+            final combinedScale = (userScale * baseScale).clamp(0.85, 1.15);
+            return MediaQuery(
+              data: mq.copyWith(textScaleFactor: combinedScale),
+              child: child!,
+            );
+          },
           home: FutureBuilder<bool>(
             future: SharedPreferences.getInstance().then((prefs) => prefs.getBool('onboarding_complete') ?? false),
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 500),
-                  transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: child,
-                    );
-                  },
+                  duration: const Duration(milliseconds: 400),
+                  reverseDuration: const Duration(milliseconds: 300),
+                  transitionBuilder: (child, animation) => snappySwitcherTransition(animation, child),
                   child: snapshot.data! ? const HomePage() : const OnboardingScreen(),
                 );
               } else {

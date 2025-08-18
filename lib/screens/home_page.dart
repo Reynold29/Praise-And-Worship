@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/widgets/sliding_cards.dart';
 import 'package:worshipcompanion/screens/explore_Screen.dart';
 import 'package:provider/provider.dart';
-import 'package:worshipcompanion/widgets/theme_provider.dart';
 import 'package:vibration/vibration.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -13,6 +12,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:worshipcompanion/services/local_database_service.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
+import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/screens/song_detail_screen.dart';
@@ -205,17 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: () async {
                     _performVibration();
                     await Navigator.of(context).push(
-                      PageRouteBuilder(
-                        pageBuilder: (context, animation, secondaryAnimation) => const UserProfilePage(),
-                        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: child,
-                          );
-                        },
-                        transitionDuration: const Duration(milliseconds: 400),
-                        reverseTransitionDuration: const Duration(milliseconds: 300),
-                      ),
+                      snappyPageRoute(page: const UserProfilePage()),
                     );
                     widget.onProfileUpdated();
                   },
@@ -280,17 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       _performVibration();
                       Navigator.push(
                         context,
-                        PageRouteBuilder(
-                          pageBuilder: (context, animation, secondaryAnimation) => ExploreScreen(),
-                          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                            return FadeTransition(
-                              opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
-                              child: child,
-                            );
-                          },
-                          transitionDuration: const Duration(milliseconds: 500),
-                          reverseTransitionDuration: const Duration(milliseconds: 300),
-                        ),
+                        snappyPageRoute(page: ExploreScreen()),
                       );
                     },
                     child: Padding(
@@ -1266,10 +1246,7 @@ class HeroDialogRoute<T> extends PageRoute<T> {
 
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
-    return FadeTransition(
-      opacity: CurvedAnimation(parent: animation, curve: Curves.easeInOutCubic),
-      child: child,
-    );
+    return snappyTransition(context, animation, secondaryAnimation, child);
   }
 
   @override

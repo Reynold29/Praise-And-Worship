@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_page.dart';
+import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({Key? key}) : super(key: key);
@@ -33,16 +34,7 @@ class OnboardingScreenState extends State<OnboardingScreen> {
 
     Navigator.pushReplacement(
       context,
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const HomePage(),
-        transitionDuration: const Duration(milliseconds: 500), 
-        transitionsBuilder: (_, animation, __, child) {
-          return FadeTransition(
-            opacity: animation.drive(CurveTween(curve: Curves.easeInOut)),
-            child: child,
-          );
-        },
-      ),
+      snappyPageRoute(page: const HomePage()),
     );
   }
 
@@ -52,18 +44,7 @@ class OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const HomePage(),
-        transitionDuration: const Duration(milliseconds: 500),
-        transitionsBuilder: (_, animation, __, child) {
-          return FadeTransition(
-            opacity: animation.drive(CurveTween(
-              curve: Interval(0.5, 1.0, curve: Curves.easeOut),
-            )),
-            child: child,
-          );
-        },
-      ),
+      snappyPageRoute(page: const HomePage()),
     );
   }
 

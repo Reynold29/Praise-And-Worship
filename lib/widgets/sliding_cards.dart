@@ -1,8 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:worshipcompanion/widgets/theme_provider.dart';
 import 'package:worshipcompanion/screens/settings_page.dart';
 import 'card_model.dart';
 import 'package:vibration/vibration.dart';
@@ -11,6 +9,7 @@ import 'package:worshipcompanion/screens/add_song_options_screen.dart';
 import 'package:worshipcompanion/screens/about_developer.dart';
 import 'package:worshipcompanion/screens/kannada_song_list_screen.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
+import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 
 class SlidingCardsView extends StatefulWidget {
   final VoidCallback? onFavoriteToggled;
@@ -24,8 +23,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
   late PageController pageController;
   int _currentPage = 0;
 
-  bool _isLeftArrowTapped = false;
-  bool _isRightArrowTapped = false;
+  // Removed unused visual tap states for arrows
 
   @override
   void initState() {
@@ -81,25 +79,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
     }
   }
 
-  void _onArrowTapDown(bool isNext) {
-    setState(() {
-      if (isNext) {
-        _isRightArrowTapped = true;
-      } else {
-        _isLeftArrowTapped = true;
-      }
-    });
-  }
-
-  void _onArrowTapUp(bool isNext) {
-    setState(() {
-      if (isNext) {
-        _isRightArrowTapped = false;
-      } else {
-        _isLeftArrowTapped = false;
-      }
-    });
-  }
+  // Removed unused press callbacks
 
   @override
   Widget build(BuildContext context) {
@@ -300,17 +280,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  PageRouteBuilder(
-                                    pageBuilder: (context, animation, secondaryAnimation) => const FavoritesScreen(),
-                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                      return FadeTransition(
-                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
-                                        child: child,
-                                      );
-                                    },
-                                    transitionDuration: const Duration(milliseconds: 450),
-                                    reverseTransitionDuration: const Duration(milliseconds: 400),
-                                  ),
+                                  snappyPageRoute(page: const FavoritesScreen()),
                                 );
                               },
                             ),
@@ -339,17 +309,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  PageRouteBuilder(
-                                    pageBuilder: (context, animation, secondaryAnimation) => const AddSongOptionsScreen(),
-                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                      return FadeTransition(
-                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
-                                        child: child,
-                                      );
-                                    },
-                                    transitionDuration: const Duration(milliseconds: 450),
-                                    reverseTransitionDuration: const Duration(milliseconds: 400),
-                                  ),
+                                  snappyPageRoute(page: const AddSongOptionsScreen()),
                                 );
                               },
                             ),
@@ -378,17 +338,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  PageRouteBuilder(
-                                    pageBuilder: (context, animation, secondaryAnimation) => const SettingsPage(),
-                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                      return FadeTransition(
-                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
-                                        child: child,
-                                      );
-                                    },
-                                    transitionDuration: const Duration(milliseconds: 450),
-                                    reverseTransitionDuration: const Duration(milliseconds: 400),
-                                  ),
+                                  snappyPageRoute(page: const SettingsPage()),
                                 );
                               },
                             ),
@@ -417,17 +367,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 }
                                 Navigator.push(
                                   context,
-                                  PageRouteBuilder(
-                                    pageBuilder: (context, animation, secondaryAnimation) => const AboutDeveloper(),
-                                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                      return FadeTransition(
-                                        opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
-                                        child: child,
-                                      );
-                                    },
-                                    transitionDuration: const Duration(milliseconds: 450),
-                                    reverseTransitionDuration: const Duration(milliseconds: 400),
-                                  ),
+                                  snappyPageRoute(page: const AboutDeveloper()),
                                 );
                               },
                             ),
