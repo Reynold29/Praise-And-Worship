@@ -1,3 +1,4 @@
+import 'package:worshipcompanion/utils/app_logger.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
@@ -8,8 +9,14 @@ import 'package:worshipcompanion/screens/song_list_screen.dart';
 import 'package:worshipcompanion/screens/add_song_options_screen.dart';
 import 'package:worshipcompanion/screens/about_developer.dart';
 import 'package:worshipcompanion/screens/kannada_song_list_screen.dart';
+import 'package:worshipcompanion/screens/other_song_list_screen.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
 import 'package:worshipcompanion/widgets/snappy_transitions.dart';
+import 'package:provider/provider.dart';
+import 'package:worshipcompanion/widgets/auth_provider.dart';
+import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'package:worshipcompanion/widgets/favorite_provider.dart';
+import 'package:worshipcompanion/widgets/sync_dialog.dart';
 
 class SlidingCardsView extends StatefulWidget {
   final VoidCallback? onFavoriteToggled;
@@ -22,8 +29,6 @@ class SlidingCardsView extends StatefulWidget {
 class _SlidingCardsViewState extends State<SlidingCardsView> {
   late PageController pageController;
   int _currentPage = 0;
-
-  // Removed unused visual tap states for arrows
 
   @override
   void initState() {
@@ -43,43 +48,36 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
 
   void _onPageChanged() async {
     final page = pageController.page ?? 0.0;
-
     try {
       final int currentPage = page.round();
       if (_lastPage != currentPage) {
         _lastPage = currentPage;
-        setState(() {
-          _currentPage = currentPage;
-        });
-
-        final bool? hasCustomSupport = await Vibration.hasCustomVibrationsSupport();
+        setState(() => _currentPage = currentPage);
+        final bool? hasCustomSupport =
+            await Vibration.hasCustomVibrationsSupport();
         if (hasCustomSupport == true) {
-          Vibration.vibrate(
-            duration: 6,
-            amplitude: 30,
-          );
+          Vibration.vibrate(duration: 6, amplitude: 30);
         } else {
           Vibration.vibrate(duration: 6);
         }
       }
     } catch (e) {
-      print('Vibration error: $e');
+      AppLogger.d('App', 'Vibration error: $e');
     }
   }
 
   void _onArrowTap(bool isNext) {
     int nextPage = isNext ? _currentPage + 1 : _currentPage - 1;
-
     if (nextPage >= 0 && nextPage < demoCardData.length) {
-      pageController.animateToPage(
-        nextPage,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+      pageController.animateToPage(nextPage,
+          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
     }
   }
 
-  // Removed unused press callbacks
+  Future<void> _vibrate() async {
+    final hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) Vibration.vibrate(duration: 18, amplitude: 60);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +87,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
       children: [
         Column(
           children: [
+            // ── Sliding cards ─────────────────────────────────────────────
             SizedBox(
               height: MediaQuery.of(context).size.height * 0.32,
               child: PageView.builder(
@@ -103,46 +102,89 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                       if (pageController.position.haveDimensions) {
                         pageOffset = pageController.page! - index;
                       }
-                      double gauss = math.exp(
-                          -(math.pow((pageOffset.abs() - 0.5), 2) / 0.08));
-                      bool isCreatePlaylistCard = demoCardData[index].icon != null;
+                      double gauss = math
+                          .exp(-(math.pow((pageOffset.abs() - 0.5), 2) / 0.08));
+                      bool isCreatePlaylistCard =
+                          demoCardData[index].icon != null;
 
                       return Transform.translate(
                         offset: Offset(
-                            -32 * gauss * pageOffset.sign - (isCreatePlaylistCard ? 40 : 60), 0),
+                            -32 * gauss * pageOffset.sign -
+                                (isCreatePlaylistCard ? 40 : 60),
+                            0),
                         child: GestureDetector(
                           onTap: () async {
                             final card = demoCardData[index];
                             if (card.onTap != null) {
                               card.onTap!();
                             } else if (card.name == "Kannada Songs") {
-                              print('Card tapped: Kannada Songs, navigating to KannadaSongListScreen');
                               await Navigator.of(context).push(
                                 PageRouteBuilder(
-                                  pageBuilder: (context, animation, secondaryAnimation) => KannadaSongListScreen(heroTag: card.heroTag, cardImage: card.image, onFavoriteToggled: widget.onFavoriteToggled),
-                                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                  pageBuilder: (context, animation,
+                                          secondaryAnimation) =>
+                                      KannadaSongListScreen(
+                                          heroTag: card.heroTag,
+                                          cardImage: card.image,
+                                          onFavoriteToggled:
+                                              widget.onFavoriteToggled),
+                                  transitionsBuilder: (context, animation,
+                                      secondaryAnimation, child) {
                                     return FadeTransition(
-                                      opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                      opacity: animation.drive(
+                                          CurveTween(curve: Curves.easeInQuad)),
                                       child: child,
                                     );
                                   },
-                                  transitionDuration: const Duration(milliseconds: 450),
-                                  reverseTransitionDuration: const Duration(milliseconds: 400),
+                                  transitionDuration:
+                                      const Duration(milliseconds: 450),
+                                  reverseTransitionDuration:
+                                      const Duration(milliseconds: 400),
+                                ),
+                              );
+                            } else if (card.name == "Other Languages") {
+                              await Navigator.of(context).push(
+                                PageRouteBuilder(
+                                  pageBuilder: (context, animation,
+                                          secondaryAnimation) =>
+                                      OtherSongListScreen(
+                                          heroTag: card.heroTag,
+                                          cardImage: card.image),
+                                  transitionsBuilder: (context, animation,
+                                      secondaryAnimation, child) {
+                                    return FadeTransition(
+                                      opacity: animation.drive(
+                                          CurveTween(curve: Curves.easeInQuad)),
+                                      child: child,
+                                    );
+                                  },
+                                  transitionDuration:
+                                      const Duration(milliseconds: 450),
+                                  reverseTransitionDuration:
+                                      const Duration(milliseconds: 400),
                                 ),
                               );
                             } else {
-                              print('Card tapped: English Songs, navigating to SongListScreen');
                               await Navigator.of(context).push(
                                 PageRouteBuilder(
-                                  pageBuilder: (context, animation, secondaryAnimation) => SongListScreen(heroTag: card.heroTag, cardImage: card.image, onFavoriteToggled: widget.onFavoriteToggled),
-                                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                  pageBuilder: (context, animation,
+                                          secondaryAnimation) =>
+                                      SongListScreen(
+                                          heroTag: card.heroTag,
+                                          cardImage: card.image,
+                                          onFavoriteToggled:
+                                              widget.onFavoriteToggled),
+                                  transitionsBuilder: (context, animation,
+                                      secondaryAnimation, child) {
                                     return FadeTransition(
-                                      opacity: animation.drive(CurveTween(curve: Curves.easeInQuad)),
+                                      opacity: animation.drive(
+                                          CurveTween(curve: Curves.easeInQuad)),
                                       child: child,
                                     );
                                   },
-                                  transitionDuration: const Duration(milliseconds: 450),
-                                  reverseTransitionDuration: const Duration(milliseconds: 400),
+                                  transitionDuration:
+                                      const Duration(milliseconds: 450),
+                                  reverseTransitionDuration:
+                                      const Duration(milliseconds: 400),
                                 ),
                               );
                             }
@@ -180,6 +222,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                 },
               ),
             ),
+
+            // ── Page indicator + arrows ───────────────────────────────────
             const SizedBox(height: 8),
             Row(
               children: [
@@ -188,13 +232,11 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                     padding: const EdgeInsets.only(left: 4),
                     child: IconButton.filledTonal(
                       onPressed: () async {
-                        final bool? hasVibration = await Vibration.hasVibrator();
-                        if (hasVibration == true) {
-                          Vibration.vibrate(duration: 18, amplitude: 60);
-                        }
+                        await _vibrate();
                         _onArrowTap(false);
                       },
-                      icon: Icon(Icons.arrow_back_ios_new_rounded, color: colorScheme.onPrimaryContainer),
+                      icon: Icon(Icons.arrow_back_ios_new_rounded,
+                          color: colorScheme.onPrimaryContainer),
                       style: IconButton.styleFrom(
                         shape: const CircleBorder(),
                         backgroundColor: colorScheme.primaryContainer,
@@ -226,13 +268,11 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                     padding: const EdgeInsets.only(right: 4),
                     child: IconButton.filledTonal(
                       onPressed: () async {
-                        final bool? hasVibration = await Vibration.hasVibrator();
-                        if (hasVibration == true) {
-                          Vibration.vibrate(duration: 18, amplitude: 60);
-                        }
+                        await _vibrate();
                         _onArrowTap(true);
                       },
-                      icon: Icon(Icons.arrow_forward_ios_rounded, color: colorScheme.onPrimaryContainer),
+                      icon: Icon(Icons.arrow_forward_ios_rounded,
+                          color: colorScheme.onPrimaryContainer),
                       style: IconButton.styleFrom(
                         shape: const CircleBorder(),
                         backgroundColor: colorScheme.primaryContainer,
@@ -245,6 +285,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                   const SizedBox(width: 40),
               ],
             ),
+
+            // ── More Options section ──────────────────────────────────────
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -252,7 +294,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                 Padding(
                   padding: const EdgeInsets.only(left: 16.0),
                   child: Text(
-                    "More Options",
+                    'More Options',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -261,132 +303,256 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: Column(
-                        children: [
-                          CircleAvatar(
-                            radius: 25,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: IconButton(
-                              icon: Icon(Icons.favorite, color: colorScheme.onPrimaryContainer),
-                              onPressed: () async {
-                                final bool? hasVibration = await Vibration.hasVibrator();
-                                if (hasVibration == true) {
-                                  Vibration.vibrate(duration: 18, amplitude: 60);
-                                }
-                                Navigator.push(
+                // Horizontal scroll → never overflows regardless of screen width
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        _NavItem(
+                          icon: Icons.favorite_rounded,
+                          label: 'Favorites',
+                          color: colorScheme.primaryContainer,
+                          iconColor: colorScheme.onPrimaryContainer,
+                          onTap: () async {
+                            await _vibrate();
+                            if (context.mounted) {
+                              Navigator.push(
                                   context,
-                                  snappyPageRoute(page: const FavoritesScreen()),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            'Favorites',
-                            style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: Column(
-                        children: [
-                          CircleAvatar(
-                            radius: 25,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: IconButton(
-                              icon: Icon(Icons.add_circle_outline_rounded, color: colorScheme.onPrimaryContainer),
-                              onPressed: () async {
-                                final bool? hasVibration = await Vibration.hasVibrator();
-                                if (hasVibration == true) {
-                                  Vibration.vibrate(duration: 18, amplitude: 60);
-                                }
-                                Navigator.push(
+                                  snappyPageRoute(
+                                      page: const FavoritesScreen()));
+                            }
+                          },
+                        ),
+                        _NavItem(
+                          icon: Icons.add_circle_outline_rounded,
+                          label: 'Add Song',
+                          color: colorScheme.primaryContainer,
+                          iconColor: colorScheme.onPrimaryContainer,
+                          onTap: () async {
+                            await _vibrate();
+                            if (context.mounted) {
+                              Navigator.push(
                                   context,
-                                  snappyPageRoute(page: const AddSongOptionsScreen()),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            'Add Song',
-                            style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: Column(
-                        children: [
-                          CircleAvatar(
-                            radius: 25,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: IconButton(
-                              icon: Icon(Icons.settings, color: colorScheme.onPrimaryContainer),
-                              onPressed: () async {
-                                final bool? hasVibration = await Vibration.hasVibrator();
-                                if (hasVibration == true) {
-                                  Vibration.vibrate(duration: 18, amplitude: 60);
-                                }
-                                Navigator.push(
+                                  snappyPageRoute(
+                                      page: const AddSongOptionsScreen()));
+                            }
+                          },
+                        ),
+                        _NavItem(
+                          icon: Icons.settings_rounded,
+                          label: 'Settings',
+                          color: colorScheme.primaryContainer,
+                          iconColor: colorScheme.onPrimaryContainer,
+                          onTap: () async {
+                            await _vibrate();
+                            if (context.mounted) {
+                              Navigator.push(context,
+                                  snappyPageRoute(page: const SettingsPage()));
+                            }
+                          },
+                        ),
+                        _NavItem(
+                          icon: Icons.info_outline_rounded,
+                          label: 'About Dev',
+                          color: colorScheme.primaryContainer,
+                          iconColor: colorScheme.onPrimaryContainer,
+                          onTap: () async {
+                            await _vibrate();
+                            if (context.mounted) {
+                              Navigator.push(
                                   context,
-                                  snappyPageRoute(page: const SettingsPage()),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            'Settings',
-                            style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                      child: Column(
-                        children: [
-                          CircleAvatar(
-                            radius: 25,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: IconButton(
-                              icon: Icon(Icons.person, color: colorScheme.onPrimaryContainer),
-                              onPressed: () async {
-                                final bool? hasVibration = await Vibration.hasVibrator();
-                                if (hasVibration == true) {
-                                  Vibration.vibrate(duration: 18, amplitude: 60);
+                                  snappyPageRoute(
+                                      page: const AboutDeveloper()));
+                            }
+                          },
+                        ),
+                        // Login — only visible when not signed in AND login is enabled
+                        Consumer2<AuthProvider, AppConfigProvider>(
+                          builder: (ctx, auth, config, _) {
+                            // Hide if already logged in OR if login is disabled
+                            if (auth.isLoggedIn || !config.socialLoginEnabled) {
+                              return const SizedBox.shrink();
+                            }
+                            return _LoginNavItem(
+                              onTap: () async {
+                                await _vibrate();
+                                final favProv = Provider.of<FavoriteProvider>(
+                                    context,
+                                    listen: false);
+                                final localKeys = favProv.favoriteSongKeys
+                                    .where((k) => k.isNotEmpty)
+                                    .toList();
+                                final result = await Navigator.of(context)
+                                    .push<bool>(snappyPageRoute(
+                                        page: const UserProfilePage()));
+                                if (!context.mounted) return;
+                                final updatedAuth = Provider.of<AuthProvider>(
+                                    context,
+                                    listen: false);
+                                if ((result == true ||
+                                        updatedAuth.isLoggedIn) &&
+                                    updatedAuth.isLoggedIn &&
+                                    localKeys.isNotEmpty) {
+                                  await showSyncDialog(context);
                                 }
-                                Navigator.push(
-                                  context,
-                                  snappyPageRoute(page: const AboutDeveloper()),
-                                );
                               },
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            'About Dev',
-                            style: TextStyle(fontSize: 12, color: colorScheme.onSurface),
-                          ),
-                        ],
-                      ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ), // closes Align
               ],
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+// ── Reusable nav item ─────────────────────────────────────────────────────────
+
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.iconColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Column(
+        children: [
+          Material(
+            color: color,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: 50,
+                height: 50,
+                child: Icon(icon, color: iconColor, size: 24),
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(label, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Pulsing login nav item ────────────────────────────────────────────────────
+
+class _LoginNavItem extends StatefulWidget {
+  final VoidCallback onTap;
+  const _LoginNavItem({required this.onTap});
+
+  @override
+  State<_LoginNavItem> createState() => _LoginNavItemState();
+}
+
+class _LoginNavItemState extends State<_LoginNavItem>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Column(
+        children: [
+          AnimatedBuilder(
+            animation: _scale,
+            builder: (_, child) => Transform.scale(
+              scale: _scale.value,
+              child: child,
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Pulsing outer ring
+                AnimatedBuilder(
+                  animation: _controller,
+                  builder: (_, __) => Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: cs.primary
+                            .withOpacity(0.3 * (1 - _controller.value)),
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                ),
+                Material(
+                  color: cs.primary,
+                  shape: const CircleBorder(),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: widget.onTap,
+                    customBorder: const CircleBorder(),
+                    child: SizedBox(
+                      width: 50,
+                      height: 50,
+                      child: Icon(Icons.login_rounded,
+                          color: cs.onPrimary, size: 24),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Login',
+            style: TextStyle(
+                fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
     );
   }
 }

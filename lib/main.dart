@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -11,43 +12,64 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'services/local_database_service.dart';
 import 'services/realtime_sync_service.dart';
+import 'services/supabase_url_resolver.dart';
 import 'package:inditrans/inditrans.dart' as inditrans;
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
+import 'package:worshipcompanion/widgets/auth_provider.dart';
+import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'utils/app_logger.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Catch unhandled platform errors (e.g. Supabase.onResumed null crash
+  // that fires when returning from OAuth browser) and log instead of crash.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AppLogger.e('App', 'Unhandled platform error', error);
+    return true;
+  };
 
   // Initialize inditrans for transliteration support
   await inditrans.init();
 
   // Defensive: Track if Supabase is initialized
   bool supabaseInitialized = false;
-  
+
   // Try to load .env file, but don't fail if it doesn't exist
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
-    print('Warning: Could not load .env file: $e');
-    // Continue without .env file - app should work offline
+    AppLogger.w('App', 'Could not load .env file: $e');
   }
 
   // Try to initialize Supabase, but don't block if it fails
   try {
-    final supabaseUrl = dotenv.env['SUPABASE_URL'];
+    final primaryUrl = dotenv.env['SUPABASE_URL'];
+    final fallbackUrl = dotenv.env['SUPABASE_URL_FALLBACK'];
     final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
-    
-    if (supabaseUrl != null && supabaseAnonKey != null) {
+
+    if (primaryUrl != null && supabaseAnonKey != null) {
+      // Resolve best reachable URL — 2.5 s TCP probe per candidate.
+      // Users on working connections hit Supabase with zero extra delay.
+      // Blocked users wait ≤2.5 s then fall through to JioBase.
+      final resolvedUrl = fallbackUrl != null
+          ? await SupabaseUrlResolver.instance.resolve(
+              primary: primaryUrl,
+              fallback: fallbackUrl,
+            )
+          : primaryUrl;
+
       await Supabase.initialize(
-        url: supabaseUrl,
+        url: resolvedUrl,
         anonKey: supabaseAnonKey,
       );
       supabaseInitialized = true;
-      print('Supabase initialized successfully');
+      AppLogger.d('App', 'Supabase initialized (url: $resolvedUrl)');
     } else {
-      print('Supabase credentials not found in .env file');
+      AppLogger.w('App', 'Supabase credentials not found in .env');
     }
   } catch (e) {
-    print('Supabase initialization failed: $e');
+    AppLogger.e('App', 'Supabase initialization failed', e);
     // Proceed without Supabase; local DB will be used
   }
 
@@ -60,21 +82,54 @@ Future<void> main() async {
   // Initialize FavoriteProvider and load favorites
   final favoriteProvider = FavoriteProvider();
 
+  // Restore cloud session if user was already logged in
+  if (supabaseInitialized) {
+    try {
+      final existingUser = Supabase.instance.client.auth.currentUser;
+      if (existingUser != null) {
+        // Load cloud favourites without blocking; UI shows loading state
+        favoriteProvider.switchToCloud(existingUser.id).catchError((e) {
+          AppLogger.e('App', 'Failed to restore cloud favourites', e);
+        });
+      }
+    } catch (e) {
+      AppLogger.e('App', 'Session restore error', e);
+    }
+  }
+
+  // Create AuthProvider (depends on favoriteProvider)
+  final authProvider = AuthProvider(favoriteProvider);
+
+  // Fetch remote app config (social_login_enabled, etc.)
+  // This is non-blocking in that we await it before runApp but it has a
+  // 6-second timeout and falls back to safe defaults on failure.
+  final appConfigProvider = AppConfigProvider();
+  if (supabaseInitialized) {
+    await appConfigProvider.load();
+  }
+
   // --- Sync local DB from Supabase if online and Supabase is initialized ---
   // Make this non-blocking so app can start even without internet
   if (supabaseInitialized) {
     try {
       final connectivityResult = await Connectivity().checkConnectivity();
-      if (connectivityResult != ConnectivityResult.none) {
+      if (!connectivityResult.every((r) => r == ConnectivityResult.none)) {
         // Run sync in background without blocking app startup
         LocalDatabaseService.instance.syncFromSupabase().catchError((e) {
-          print('Background sync failed: $e');
+          AppLogger.e('App', 'Background English sync failed', e);
+        });
+        LocalDatabaseService.instance.syncKannadaFromSupabase().then((_) {
+          LocalDatabaseService.instance.removeUnwantedKannadaSongs();
+        }).catchError((e) {
+          AppLogger.e('App', 'Background Kannada sync failed', e);
+        });
+        LocalDatabaseService.instance.syncOtherFromSupabase().catchError((e) {
+          AppLogger.e('App', 'Background Other sync failed', e);
         });
       }
-      // Start real-time listener only if Supabase is initialized
       RealtimeSyncService.instance.startListening();
     } catch (e) {
-      print('Connectivity check or sync failed: $e');
+      AppLogger.e('App', 'Connectivity check or sync failed', e);
       // Continue without sync
     }
   }
@@ -84,8 +139,12 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider.value(value: themeProvider),
         ChangeNotifierProvider.value(value: favoriteProvider),
+        ChangeNotifierProvider.value(value: appConfigProvider),
+        ChangeNotifierProvider.value(value: authProvider),
       ],
-      child: MyApp(showOnboarding: showOnboarding, supabaseInitialized: supabaseInitialized),
+      child: MyApp(
+          showOnboarding: showOnboarding,
+          supabaseInitialized: supabaseInitialized),
     ),
   );
 }
@@ -94,7 +153,10 @@ class MyApp extends StatefulWidget {
   final bool showOnboarding;
   final bool supabaseInitialized;
 
-  const MyApp({super.key, required this.showOnboarding, this.supabaseInitialized = true});
+  const MyApp(
+      {super.key,
+      required this.showOnboarding,
+      this.supabaseInitialized = true});
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -111,11 +173,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _connectivity = Connectivity();
     _connectivityStream = _connectivity.onConnectivityChanged;
     _connectivityStream.listen((result) async {
-      if (result != ConnectivityResult.none && widget.supabaseInitialized) {
+      if (!result.every((r) => r == ConnectivityResult.none) &&
+          widget.supabaseInitialized) {
         await LocalDatabaseService.instance.syncFromSupabase();
+        await LocalDatabaseService.instance.syncKannadaFromSupabase();
+        await LocalDatabaseService.instance.syncOtherFromSupabase();
         // Also refresh favorites in case they were updated by sync
         if (mounted) {
-          Provider.of<FavoriteProvider>(context, listen: false).refreshFavorites();
+          Provider.of<FavoriteProvider>(context, listen: false)
+              .refreshFavorites();
         }
       }
     });
@@ -133,7 +199,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     const String appFontFamily = 'ProductSans'; // Define the font family name
 
     return DynamicColorBuilder(
-      builder: (ColorScheme? lightDynamicFromBuilder, ColorScheme? darkDynamicFromBuilder) {
+      builder: (ColorScheme? lightDynamicFromBuilder,
+          ColorScheme? darkDynamicFromBuilder) {
         ColorScheme lightSchemeToUse;
         ColorScheme darkSchemeToUse;
 
@@ -143,19 +210,31 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           darkSchemeToUse = darkDynamicFromBuilder;
 
           // If a custom seed color is also set, let it override dynamic colors
-          if (themeProvider.customSeedColor != null && themeProvider.customSeedColor != Colors.transparent) {
-            lightSchemeToUse = ColorScheme.fromSeed(seedColor: themeProvider.customSeedColor!, brightness: Brightness.light);
-            darkSchemeToUse = ColorScheme.fromSeed(seedColor: themeProvider.customSeedColor!, brightness: Brightness.dark);
+          if (themeProvider.customSeedColor != null &&
+              themeProvider.customSeedColor != Colors.transparent) {
+            lightSchemeToUse = ColorScheme.fromSeed(
+                seedColor: themeProvider.customSeedColor!,
+                brightness: Brightness.light);
+            darkSchemeToUse = ColorScheme.fromSeed(
+                seedColor: themeProvider.customSeedColor!,
+                brightness: Brightness.dark);
           }
-        } else if (themeProvider.customSeedColor != null && themeProvider.customSeedColor != Colors.transparent) {
+        } else if (themeProvider.customSeedColor != null &&
+            themeProvider.customSeedColor != Colors.transparent) {
           // Dynamic colors not yet available, but a custom seed is set
-          lightSchemeToUse = themeProvider.lightColorScheme; // Already generated from custom seed
-          darkSchemeToUse = themeProvider.darkColorScheme;   // Already generated from custom seed
+          lightSchemeToUse = themeProvider
+              .lightColorScheme; // Already generated from custom seed
+          darkSchemeToUse = themeProvider
+              .darkColorScheme; // Already generated from custom seed
         } else {
           // No dynamic and no custom seed, use ThemeProvider's default
           // This ensures a valid theme is used while dynamic colors load.
-          lightSchemeToUse = ColorScheme.fromSeed(seedColor: themeProvider.defaultSeedColor, brightness: Brightness.light);
-          darkSchemeToUse = ColorScheme.fromSeed(seedColor: themeProvider.defaultSeedColor, brightness: Brightness.dark);
+          lightSchemeToUse = ColorScheme.fromSeed(
+              seedColor: themeProvider.defaultSeedColor,
+              brightness: Brightness.light);
+          darkSchemeToUse = ColorScheme.fromSeed(
+              seedColor: themeProvider.defaultSeedColor,
+              brightness: Brightness.dark);
         }
 
         // Apply AMOLED black if needed (only for dark theme)
@@ -179,7 +258,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             fontFamily: appFontFamily, // Apply font family to dark theme
             visualDensity: VisualDensity.adaptivePlatformDensity,
           ),
-          themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          themeMode:
+              themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
           builder: (context, child) {
             final mq = MediaQuery.of(context);
             final width = mq.size.width;
@@ -201,14 +281,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             );
           },
           home: FutureBuilder<bool>(
-            future: SharedPreferences.getInstance().then((prefs) => prefs.getBool('onboarding_complete') ?? false),
+            future: SharedPreferences.getInstance()
+                .then((prefs) => prefs.getBool('onboarding_complete') ?? false),
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 return AnimatedSwitcher(
                   duration: const Duration(milliseconds: 400),
                   reverseDuration: const Duration(milliseconds: 300),
-                  transitionBuilder: (child, animation) => snappySwitcherTransition(animation, child),
-                  child: snapshot.data! ? const HomePage() : const OnboardingScreen(),
+                  transitionBuilder: (child, animation) =>
+                      snappySwitcherTransition(animation, child),
+                  child: snapshot.data!
+                      ? const HomePage()
+                      : const OnboardingScreen(),
                 );
               } else {
                 return const CircularProgressIndicator();

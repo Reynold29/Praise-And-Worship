@@ -6,22 +6,26 @@ class ExploreScreen extends StatelessWidget {
   final List<Map<String, String>> _appFeatures = const [
     {
       'title': 'Welcome Onboarding',
-      'description': 'A personalized welcome experience to set up your profile.',
+      'description':
+          'A personalized welcome experience to set up your profile.',
       'image': 'onboarding.png',
     },
     {
       'title': 'Intuitive Home Screen',
-      'description': 'Your personalized hub for quick access to songs, profile, and more.',
+      'description':
+          'Your personalized hub for quick access to songs, profile, and more.',
       'image': 'homescreen.png',
     },
     {
       'title': 'Flexible Dark Mode',
-      'description': 'Switch between light and dark themes, including AMOLED black for OLED screens.',
+      'description':
+          'Switch between light and dark themes, including AMOLED black for OLED screens.',
       'image': 'settings.png',
     },
     {
       'title': 'Custom Theme Colors',
-      'description': 'Personalize your app\'s look with a wide range of custom seed colors.',
+      'description':
+          'Personalize your app\'s look with a wide range of custom seed colors.',
       'image': 'custom_theme.png',
     },
     {
@@ -31,12 +35,14 @@ class ExploreScreen extends StatelessWidget {
     },
     {
       'title': 'Song Categories on Home',
-      'description': 'Easily navigate through English and Kannada song collections directly from the home screen.',
+      'description':
+          'Easily navigate through English and Kannada song collections directly from the home screen.',
       'image': 'categories.png',
     },
     {
       'title': 'Alphabetical Song Lists',
-      'description': 'Browse extensive lists of English and Kannada songs, organized alphabetically for easy discovery.',
+      'description':
+          'Browse extensive lists of English and Kannada songs, organized alphabetically for easy discovery.',
       'image': 'english-songs.png',
     },
     {
@@ -46,12 +52,14 @@ class ExploreScreen extends StatelessWidget {
     },
     {
       'title': 'Chords & Transposition',
-      'description': 'Toggle chords on/off and transpose them to any key instantly.',
+      'description':
+          'Toggle chords on/off and transpose them to any key instantly.',
       'image': 'chords.png',
     },
     {
       'title': 'Adjustable Text Size',
-      'description': 'Customize the font size for a comfortable reading experience.',
+      'description':
+          'Customize the font size for a comfortable reading experience.',
       'image': 'song_detail_font_size.png',
     },
   ];
@@ -78,7 +86,8 @@ class ExploreScreen extends StatelessWidget {
             elevation: 2.0,
             margin: const EdgeInsets.only(bottom: 16.0),
             color: colorScheme.surfaceVariant.withAlpha(200),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12.0)),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -119,12 +128,14 @@ class ExploreScreen extends StatelessWidget {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.image_not_supported_rounded, size: 50, color: Colors.grey.shade600),
+                                  Icon(Icons.image_not_supported_rounded,
+                                      size: 50, color: Colors.grey.shade600),
                                   const SizedBox(height: 10),
                                   Text(
                                     'Screenshot for "${feature['title']!}" here',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.grey.shade700),
+                                    style:
+                                        TextStyle(color: Colors.grey.shade700),
                                   ),
                                 ],
                               ),

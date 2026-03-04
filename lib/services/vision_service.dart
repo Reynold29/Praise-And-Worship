@@ -33,4 +33,4 @@ class VisionService {
       throw Exception('Vision API error: [31m${response.body}[0m');
     }
   }
-} 
+}

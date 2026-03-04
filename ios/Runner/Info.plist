@@ -2,10 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- ── Bundle identity ──────────────────────────────────────────────────── -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Worshipcompanion</string>
+	<string>Worship Companion</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,6 +23,39 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+
+	<!-- ── URL schemes — Supabase OAuth deep-link callback ──────────────────── -->
+	<!-- Matches the Android intent-filter: io.supabase.worshipcompanion://login-callback -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.reyzie.worshipcompanion</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>io.supabase.worshipcompanion</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- ── Privacy usage descriptions (App Store review requirement) ─────────── -->
+	<key>NSCameraUsageDescription</key>
+	<string>Worship Companion uses the camera to scan printed song sheets and add them to your library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Worship Companion uses your photo library to let you pick a profile photo or scan an image of a song sheet.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Worship Companion may save processed song images to your photo library.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is not used by this app.</string>
+
+	<!-- ── Encryption export compliance ────────────────────────────────────── -->
+	<!-- The app uses standard HTTPS (ATS) and SQLCipher (exempt under EAR 740.17) -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- ── Device & orientation ─────────────────────────────────────────────── -->
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -41,6 +75,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+
+	<!-- ── Performance ──────────────────────────────────────────────────────── -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

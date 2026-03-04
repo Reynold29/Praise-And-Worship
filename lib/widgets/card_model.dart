@@ -17,20 +17,15 @@ class CardModel {
 List<CardModel> demoCardData = [
   CardModel(
     name: "English Songs",
-    image: "english_image.png", // Assuming this is your image asset
+    image: "english_image.png",
   ),
   CardModel(
     name: "Kannada Songs",
-    image: "kannada_image.png", // Assuming this is your image asset
+    image: "kannada_image.png",
   ),
   CardModel(
-    name: "Add Your Own",
-    image: "english_image.png", // Or a different placeholder image
+    name: "Other Languages",
+    image: "other_languages_image.png",
     icon: Icons.add_circle_outline_rounded,
-    // No categoryKey needed, or a special one if it has a function
-    onTap: () {
-      print("Add Your Own tapped");
-      // TODO: Implement navigation or action for adding songs
-    }
   ),
 ];

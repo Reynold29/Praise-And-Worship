@@ -1,3 +1,4 @@
+import '../utils/app_logger.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'local_database_service.dart';
 
@@ -11,56 +12,69 @@ class RealtimeSyncService {
   /// Call this once (e.g., on app start) to begin listening for changes
   void startListening() {
     if (_isSubscribed) return;
-    
+
     try {
       final supabase = Supabase.instance.client;
       if (supabase == null) {
-        print('Supabase client is null, skipping realtime sync setup');
+        AppLogger.d('App', 'Supabase client is null, skipping realtime sync setup');
         return;
       }
-      
-      _channel = supabase.channel('public:english_data')
-        ..onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'english_data',
-          callback: (payload) async {
-            try {
-              await LocalDatabaseService.instance.syncFromSupabase();
-            } catch (e) {
-              print('Realtime sync insert callback failed: $e');
-            }
-          },
-        )
-        ..onPostgresChanges(
-          event: PostgresChangeEvent.update,
-          schema: 'public',
-          table: 'english_data',
-          callback: (payload) async {
-            try {
-              await LocalDatabaseService.instance.syncFromSupabase();
-            } catch (e) {
-              print('Realtime sync update callback failed: $e');
-            }
-          },
-        )
-        ..onPostgresChanges(
-          event: PostgresChangeEvent.delete,
-          schema: 'public',
-          table: 'english_data',
-          callback: (payload) async {
-            try {
-              await LocalDatabaseService.instance.syncFromSupabase();
-            } catch (e) {
-              print('Realtime sync delete callback failed: $e');
-            }
-          },
-        )
-        ..subscribe();
+
+      _channel = supabase.channel('public:all_data');
+
+      void _registerTableSync(
+          String tableName, Future<void> Function() syncMethod) {
+        _channel!
+          ..onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: tableName,
+            callback: (payload) async {
+              try {
+                await syncMethod();
+              } catch (e) {
+                AppLogger.d('App', 'Realtime sync insert error ($tableName): $e');
+              }
+            },
+          )
+          ..onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: tableName,
+            callback: (payload) async {
+              try {
+                await syncMethod();
+              } catch (e) {
+                AppLogger.d('App', 'Realtime sync update error ($tableName): $e');
+              }
+            },
+          )
+          ..onPostgresChanges(
+            event: PostgresChangeEvent.delete,
+            schema: 'public',
+            table: tableName,
+            callback: (payload) async {
+              try {
+                await syncMethod();
+              } catch (e) {
+                AppLogger.d('App', 'Realtime sync delete error ($tableName): $e');
+              }
+            },
+          );
+      }
+
+      _registerTableSync(
+          'english_data', LocalDatabaseService.instance.syncFromSupabase);
+      _registerTableSync('kannada_data',
+          LocalDatabaseService.instance.syncKannadaFromSupabase);
+      _registerTableSync(
+          'other_data', LocalDatabaseService.instance.syncOtherFromSupabase);
+
+      _channel!.subscribe();
       _isSubscribed = true;
-      print('Realtime sync started successfully');
+      AppLogger.d('App', 'Realtime sync started successfully');
     } catch (e) {
-      print('Failed to start realtime sync: $e');
+      AppLogger.d('App', 'Failed to start realtime sync: $e');
       // Don't rethrow - app should continue working without realtime sync
     }
   }
@@ -71,10 +85,10 @@ class RealtimeSyncService {
         _channel!.unsubscribe();
         _channel = null;
         _isSubscribed = false;
-        print('Realtime sync stopped');
+        AppLogger.d('App', 'Realtime sync stopped');
       } catch (e) {
-        print('Error stopping realtime sync: $e');
+        AppLogger.d('App', 'Error stopping realtime sync: $e');
       }
     }
   }
-} 
+}

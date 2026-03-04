@@ -1,0 +1,395 @@
+import 'package:flutter/material.dart';
+import 'package:worshipcompanion/models/song_model.dart';
+import 'package:worshipcompanion/screens/language_song_list_screen.dart';
+import 'package:worshipcompanion/services/local_database_service.dart';
+import 'package:vibration/vibration.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:worshipcompanion/utils/app_logger.dart';
+
+class OtherSongListScreen extends StatefulWidget {
+  final String heroTag;
+  final String cardImage;
+
+  const OtherSongListScreen(
+      {Key? key, required this.heroTag, required this.cardImage});
+
+  @override
+  _OtherSongListScreenState createState() => _OtherSongListScreenState();
+}
+
+class _OtherSongListScreenState extends State<OtherSongListScreen> {
+  List<Song> _songs = [];
+  List<Song> _filteredSongs = [];
+  List<String> _availableCategories = ['All'];
+  bool _isLoading = true;
+  String? _error;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _selectedCategory = 'All'; // New filter state
+
+  void _initializeSearchController() {
+    _searchController.clear();
+    _searchQuery = '';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeSearchController();
+    _searchController.addListener(_onSearchChanged);
+    _initAndFetch();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _initializeSearchController();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _initializeSearchController();
+  }
+
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _filterSongs();
+    });
+  }
+
+  void _performVibration() async {
+    final bool? hasVibration = await Vibration.hasVibrator();
+    if (hasVibration == true) {
+      Vibration.vibrate(duration: 18, amplitude: 60);
+    }
+  }
+
+  void _filterSongs() {
+    List<Song> filtered = List.from(_songs);
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filtered = filtered.where((song) {
+        return song.title.toLowerCase().contains(query) ||
+            (song.authorName?.toLowerCase().contains(query) ?? false) ||
+            song.lyrics.toLowerCase().contains(query);
+      }).toList();
+    }
+
+    // Apply category filter
+    if (_selectedCategory != 'All') {
+      filtered =
+          filtered.where((song) => song.category == _selectedCategory).toList();
+    }
+    setState(() {
+      _filteredSongs = filtered;
+    });
+  }
+
+  Future<void> _initAndFetch() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final connectivity = await Connectivity().checkConnectivity();
+      final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
+      if (!isOffline) {
+        AppLogger.d('OtherSongList', 'Online — syncing Other from Supabase...');
+        await LocalDatabaseService.instance.syncOtherFromSupabase();
+      } else {
+        AppLogger.d('OtherSongListScreen', 'Offline. Skipping sync.');
+      }
+
+      final fetchedSongs =
+          await LocalDatabaseService.instance.fetchAllOtherSongs();
+
+      if (!mounted) return;
+
+      // Extract unique categories from the fetched songs
+      final uniqueCategories = fetchedSongs
+          .map((s) => s.category)
+          .where((c) => c != 'unknown_data' && c.isNotEmpty)
+          .toSet()
+          .toList();
+      uniqueCategories.sort();
+
+      setState(() {
+        _songs = fetchedSongs;
+        _availableCategories = ['All', ...uniqueCategories];
+
+        // Reset selected category to 'All' if the current selection is no longer valid
+        if (!_availableCategories.contains(_selectedCategory)) {
+          _selectedCategory = 'All';
+        }
+
+        _filterSongs();
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+      AppLogger.d('App', 'Error in OtherSongListScreen: $e');
+    }
+  }
+
+  void _navigateToLanguage(String category) {
+    List<Song> categorySongs = category == 'All'
+        ? _filteredSongs
+        : _filteredSongs.where((s) => s.category == category).toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LanguageSongListScreen(
+          categoryName:
+              category == 'All' ? 'All Songs' : _formatCategoryName(category),
+          songs: categorySongs,
+          heroTag: '${widget.heroTag}_$category',
+          cardImage: widget.cardImage,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Separate 'All' from the specific languages for layout
+    final languages = _availableCategories.where((c) => c != 'All').toList();
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
+      body: Column(
+        children: [
+          Hero(
+            tag: widget.heroTag,
+            child: Container(
+              height: 220,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                image: DecorationImage(
+                  image: AssetImage('assets/cards/${widget.cardImage}'),
+                  fit: BoxFit.cover,
+                ),
+                borderRadius:
+                    const BorderRadius.vertical(bottom: Radius.circular(32)),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 40,
+                    left: 16,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () {
+                          _performVibration();
+                          Navigator.pop(context);
+                        },
+                      ),
+                    ),
+                  ),
+                  const Positioned(
+                    bottom: 20,
+                    left: 20,
+                    child: Text(
+                      'Other Languages',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(
+                            offset: Offset(0, 2),
+                            blurRadius: 4.0,
+                            color: Colors.black54,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search songs across all languages...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _performVibration();
+                                _searchController.clear();
+                                FocusScope.of(context).unfocus();
+                              },
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0)),
+                      filled: true,
+                      fillColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceVariant
+                          .withAlpha(80),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_isLoading)
+            const Expanded(
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (_error != null)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(
+                    _error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16.0),
+                children: [
+                  // --- 'All Songs' Card ---
+                  _buildCategoryCard('All', 'All Songs', Icons.library_music),
+
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: Divider(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Text(
+                          'Select Language',
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                        ),
+                      ),
+                      Expanded(
+                          child: Divider(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // --- Grid of Specific Languages ---
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                      childAspectRatio: 1.5,
+                    ),
+                    itemCount: languages.length,
+                    itemBuilder: (context, index) {
+                      final category = languages[index];
+                      return _buildCategoryCard(category,
+                          _formatCategoryName(category), Icons.language);
+                    },
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryCard(
+      String categoryKey, String displayName, IconData iconData) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          _performVibration();
+          _navigateToLanguage(categoryKey);
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Theme.of(context).colorScheme.primaryContainer,
+                Theme.of(context).colorScheme.surface,
+              ],
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(iconData,
+                    size: 32, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 12),
+                Text(
+                  displayName,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatCategoryName(String category) {
+    if (category.isEmpty) return category;
+    return "${category[0].toUpperCase()}${category.substring(1)}";
+  }
+}

@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Added for SharedPreferences
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/widgets/theme_provider.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart'; // Import the package
-import 'package:flutter/services.dart'; // For Clipboard
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flutter/services.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:path/path.dart' as p;
 import 'package:vibration/vibration.dart';
 
+// ─── Theme mode enum ──────────────────────────────────────────────────────────
 enum AppThemeMode {
-  materialExpressive,
-  youTheming, // Dynamic color / system theme
+  materialExpressive, // Custom seed color
+  youTheming, // Dynamic / system color
 }
+
+// ─── Dark mode preference stored as int ──────────────────────────────────────
+enum AppDarkMode { system, light, dark }
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -21,29 +25,20 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  // Keys for SharedPreferences
   static const String _themeModeKey = 'app_theme_mode';
-  static const String _amoledBlackKeySP = 'amoled_black_on_sp'; // Differentiated from ThemeProvider key for clarity
-  static const String _customColorKeySP = 'custom_color_sp'; // Differentiated
+  static const String _darkModeKey = 'app_dark_mode';
+  static const String _amoledBlackKeySP = 'amoled_black_on_sp';
+  static const String _customColorKeySP = 'custom_color_sp';
 
   AppThemeMode _selectedTheme = AppThemeMode.youTheming;
-  bool _isAmoledBlackEnabled = false;
-  Color _customColor = Colors.blue; // Default custom color
+  AppDarkMode _darkMode = AppDarkMode.system;
+  bool _isAmoledBlack = false;
+  Color _customColor = Colors.blue;
+  bool _isLoading = true;
 
-  bool _isLoading = true; // To show a loader while preferences are loading
-
-  // Placeholder primary colors - replace with your desired list
-  final List<Color> _primaryPickerColors = [
-    Colors.blue, Colors.green, Colors.red, Colors.purple, Colors.orange, Colors.teal,
-    Colors.blueGrey, Colors.indigo, Colors.pink, Colors.amber, Colors.cyan, Colors.lime,
-  ];
-
-  // Placeholder accent colors - replace with your desired list
-  final List<Color> _accentPickerColors = [
-    Colors.lightBlueAccent, Colors.greenAccent, Colors.redAccent, Colors.purpleAccent,
-    Colors.orangeAccent, Colors.tealAccent, Colors.indigoAccent, Colors.pinkAccent,
-    Colors.amberAccent, Colors.cyanAccent, Colors.limeAccent,
-  ];
+  // Recent colors (stored as int list)
+  static const String _recentColorsKey = 'recent_colors';
+  List<Color> _recentColors = [];
 
   @override
   void initState() {
@@ -52,73 +47,98 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadPreferences() async {
-    setState(() {
-      _isLoading = true;
-    });
+    // Capture ThemeProvider BEFORE the first await so the BuildContext
+    // is not used across an async gap (Dart SDK >= 3.7 enforcement).
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final prefs = await SharedPreferences.getInstance();
-    final themeProvider = Provider.of<ThemeProvider>(this.context, listen: false);
+    if (!mounted) return;
 
-    _selectedTheme = AppThemeMode.values[prefs.getInt(_themeModeKey) ?? AppThemeMode.youTheming.index];
-    _isAmoledBlackEnabled = prefs.getBool(_amoledBlackKeySP) ?? false;
-    _customColor = Color(prefs.getInt(_customColorKeySP) ?? Colors.blue.value);
+    final themeModeIdx =
+        prefs.getInt(_themeModeKey) ?? AppThemeMode.youTheming.index;
+    final darkModeIdx = prefs.getInt(_darkModeKey) ?? AppDarkMode.system.index;
 
-    // Apply loaded settings to ThemeProvider to ensure consistency on startup
-    // This is important if the user had custom settings saved
-    if (_selectedTheme == AppThemeMode.materialExpressive) {
-       // If youTheming is off, apply the custom/default color as the seed
-      themeProvider.setCustomSeedColor(_customColor);
-    } else {
-      // If youTheming is on, clear any custom seed color to allow dynamic colors to take effect
-      // Assuming ThemeProvider's _generateColorSchemes() handles dynamic colors if _customSeedColor is null
-      themeProvider.setCustomSeedColor(Colors.transparent); // Passing a transparent color as a signal, to be handled in ThemeProvider
-    }
-    themeProvider.setAmoledBlack(_isAmoledBlackEnabled);
-    // Note: toggleTheme in ThemeProvider is for dark/light mode, which is separate from these style settings
+    _selectedTheme = AppThemeMode.values[themeModeIdx];
+    _darkMode =
+        AppDarkMode.values.elementAtOrNull(darkModeIdx) ?? AppDarkMode.system;
+    _isAmoledBlack =
+        prefs.getBool(_amoledBlackKeySP) ?? themeProvider.isAmoledBlack;
+    _customColor = Color(prefs.getInt(_customColorKeySP) ??
+        (themeProvider.customSeedColor?.value ?? Colors.blue.value));
 
-    setState(() {
-      _isLoading = false;
-    });
+    // Recent colors
+    final raw = prefs.getStringList(_recentColorsKey) ?? [];
+    _recentColors = raw
+        .map((s) => int.tryParse(s))
+        .whereType<int>()
+        .map(Color.new)
+        .toList();
+
+    _applyThemeMode(themeProvider);
+    themeProvider.setAmoledBlack(_isAmoledBlack);
+    _applyDarkMode(themeProvider);
+
+    setState(() => _isLoading = false);
   }
 
   Future<void> _savePreferences() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_themeModeKey, _selectedTheme.index);
-    await prefs.setBool(_amoledBlackKeySP, _isAmoledBlackEnabled);
+    await prefs.setInt(_darkModeKey, _darkMode.index);
+    await prefs.setBool(_amoledBlackKeySP, _isAmoledBlack);
     await prefs.setInt(_customColorKeySP, _customColor.value);
+    await prefs.setStringList(_recentColorsKey,
+        _recentColors.map((c) => c.value.toString()).toList());
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
+  void _applyThemeMode(ThemeProvider tp) {
+    if (_selectedTheme == AppThemeMode.materialExpressive) {
+      tp.setCustomSeedColor(_customColor);
+    } else {
+      tp.setCustomSeedColor(Colors.transparent);
+    }
+  }
+
+  void _applyDarkMode(ThemeProvider tp) {
+    switch (_darkMode) {
+      case AppDarkMode.light:
+        tp.toggleTheme(false);
+      case AppDarkMode.dark:
+        tp.toggleTheme(true);
+      case AppDarkMode.system:
+        // Honour system brightness
+        final brightness =
+            WidgetsBinding.instance.platformDispatcher.platformBrightness;
+        tp.toggleTheme(brightness == Brightness.dark);
+    }
+  }
+
+  void _vibrate() async {
+    if (await Vibration.hasVibrator() == true) {
       Vibration.vibrate(duration: 18, amplitude: 60);
     }
   }
 
-  void _openColorPicker() async {
-    final themeProvider = Provider.of<ThemeProvider>(this.context, listen: false);
-    
-    final Color? result = await showDialog<Color>(
-      context: this.context,
-      barrierDismissible: false, // User must use buttons to close
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.0)),
-          titlePadding: EdgeInsets.zero,
-          contentPadding: EdgeInsets.zero,
-          // The AlertDialog will be styled further, but its content is our custom widget
-          content: _ColorPickerDialogContent(
-            initialColor: _customColor,
-            primaryColors: _primaryPickerColors,
-            accentColors: _accentPickerColors,
-          ),
-        );
-      },
+  Future<void> _openColorPicker() async {
+    // Capture context and provider before any await.
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    if (!mounted) return;
+    final Color? result = await showModalBottomSheet<Color>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ModernColorPicker(
+        initialColor: _customColor,
+        recentColors: _recentColors,
+      ),
     );
 
     if (result != null) {
-      setState(() {
-        _customColor = result;
-      });
+      setState(() => _customColor = result);
+      // Save to recent
+      _recentColors.removeWhere((c) => c.value == result.value);
+      _recentColors.insert(0, result);
+      if (_recentColors.length > 8) _recentColors = _recentColors.sublist(0, 8);
+
       if (_selectedTheme == AppThemeMode.materialExpressive) {
         themeProvider.setCustomSeedColor(_customColor);
       }
@@ -128,668 +148,953 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen to ThemeProvider for theme changes to rebuild SettingsPage
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('App Settings')),
-        backgroundColor: Theme.of(context).colorScheme.background, // Ensure background updates
+        appBar: AppBar(title: const Text('Settings')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
-        title: const Text('App Settings'),
-        // backgroundColor: Theme.of(context).colorScheme.surface, // Optional: theme app bar too
+        title: const Text('Settings'),
+        centerTitle: false,
+        backgroundColor: colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
       ),
-      backgroundColor: Theme.of(context).colorScheme.background, // Explicitly set background
       body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: Text(
-              'Theme Settings',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.onBackground, // Ensure text is visible
-                  ),
-            ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        children: [
+          // ── Appearance Preview Card ────────────────────────────────────
+          _SectionLabel(label: 'Appearance Preview'),
+          _AppearancePreviewCard(
+            seedColor: _selectedTheme == AppThemeMode.materialExpressive
+                ? _customColor
+                : colorScheme.primary,
+            isDark: themeProvider.isDarkMode,
           ),
-          Card(
-            elevation: 2.0,
-            margin: const EdgeInsets.symmetric(vertical: 8.0),
-            color: Theme.of(context).colorScheme.surface, // Ensure card color matches theme
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
+          const SizedBox(height: 20),
+
+          // ── Color Scheme ───────────────────────────────────────────────
+          _SectionLabel(label: 'Color Scheme'),
+          _SettingsCard(children: [
+            _SettingsTile(
+              icon: Icons.auto_awesome_rounded,
+              iconColor: colorScheme.primary,
+              title: 'System Theme (Material You)',
+              subtitle: 'Adapts to your wallpaper (Android 12+)',
+              trailing: Radio<AppThemeMode>(
+                value: AppThemeMode.youTheming,
+                groupValue: _selectedTheme,
+                activeColor: colorScheme.primary,
+                onChanged: (v) async {
+                  _vibrate();
+                  setState(() => _selectedTheme = v!);
+                  _applyThemeMode(themeProvider);
+                  await _savePreferences();
+                },
+              ),
+              onTap: () async {
+                _vibrate();
+                setState(() => _selectedTheme = AppThemeMode.youTheming);
+                _applyThemeMode(themeProvider);
+                await _savePreferences();
+              },
+            ),
+            const Divider(indent: 56, endIndent: 16, height: 1),
+            _SettingsTile(
+              icon: Icons.palette_outlined,
+              iconColor: colorScheme.tertiary,
+              title: 'Custom Seed Color',
+              subtitle: 'Pick your own accent color',
+              trailing: Radio<AppThemeMode>(
+                value: AppThemeMode.materialExpressive,
+                groupValue: _selectedTheme,
+                activeColor: colorScheme.primary,
+                onChanged: (v) async {
+                  _vibrate();
+                  setState(() => _selectedTheme = v!);
+                  _applyThemeMode(themeProvider);
+                  await _savePreferences();
+                },
+              ),
+              onTap: () async {
+                _vibrate();
+                setState(
+                    () => _selectedTheme = AppThemeMode.materialExpressive);
+                _applyThemeMode(themeProvider);
+                await _savePreferences();
+              },
+            ),
+            // Color swatch row — only tappable when custom mode is active
+            AnimatedOpacity(
+              opacity:
+                  _selectedTheme == AppThemeMode.materialExpressive ? 1.0 : 0.4,
+              duration: const Duration(milliseconds: 200),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _selectedTheme == AppThemeMode.materialExpressive
+                    ? () {
+                        _vibrate();
+                        _openColorPicker();
+                      }
+                    : null,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(56, 12, 16, 12),
+                  child: Row(
+                    children: [
+                      // Large color circle
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: _customColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: colorScheme.outline.withOpacity(0.5),
+                              width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                                color: _customColor.withOpacity(0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Custom Color',
+                                style: textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurface,
+                                    fontWeight: FontWeight.w500)),
+                            Text(
+                                '#${_customColor.value.toRadixString(16).substring(2).toUpperCase()}',
+                                style: textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant)),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded,
+                          color: colorScheme.onSurfaceVariant),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 20),
+
+          // ── Brightness ─────────────────────────────────────────────────
+          _SectionLabel(label: 'Brightness'),
+          _SettingsCard(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  RadioListTile<AppThemeMode>(
-                    title: Text('Material 3 Expressive (Custom Seed)', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-                    value: AppThemeMode.materialExpressive,
-                    groupValue: _selectedTheme,
-                    activeColor: Theme.of(context).colorScheme.primary,
-                    onChanged: (AppThemeMode? value) async {
-                      _performVibration();
-                      if (value != null) {
-                        setState(() {
-                          _selectedTheme = value;
-                        });
-                        themeProvider.setCustomSeedColor(_customColor);
-                        await _savePreferences();
-                      }
-                    },
-                    subtitle:
-                        Text('Uses a custom seed color for the theme.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
+                  Row(
+                    children: [
+                      Icon(Icons.brightness_6_rounded,
+                          color: colorScheme.primary, size: 22),
+                      const SizedBox(width: 14),
+                      Text('App Appearance',
+                          style: textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurface,
+                              fontWeight: FontWeight.w500)),
+                    ],
                   ),
-                  RadioListTile<AppThemeMode>(
-                    title: Text('System Theme (Material You)', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-                    value: AppThemeMode.youTheming,
-                    groupValue: _selectedTheme,
-                    activeColor: Theme.of(context).colorScheme.primary,
-                    onChanged: (AppThemeMode? value) async {
-                      _performVibration();
-                      if (value != null) {
-                        setState(() {
-                          _selectedTheme = value;
-                        });
-                        // For You Theming, we need to tell ThemeProvider to use dynamic colors.
-                        // This might mean passing null or a specific signal to setCustomSeedColor
-                        // or having a dedicated method like themeProvider.enableDynamicColors(true).
-                        // The current themeProvider.setCustomSeedColor(themeProvider.customSeedColor!) won't switch to dynamic.
-                        // Let's modify this to pass null, assuming ThemeProvider is updated to handle it.
-                        // TODO: Ensure ThemeProvider.setCustomSeedColor(null) correctly enables dynamic theme.
-                        themeProvider.setCustomSeedColor(Colors.transparent); // Passing a transparent color as a signal, to be handled in ThemeProvider
-
-                        await _savePreferences();
-                      }
-                    },
-                    subtitle: Text(
-                        'Adapts to your system\'s color scheme (Android 12+).', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
-                  ),
-                  const Divider(),
-                  SwitchListTile(
-                    title: Text('Dark Mode', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-                    value: themeProvider.isDarkMode,
-                    activeColor: Theme.of(context).colorScheme.primary,
-                    onChanged: (bool value) {
-                      _performVibration();
-                      themeProvider.toggleTheme(value);
-                    },
-                    subtitle: Text('Enable or disable dark theme.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
-                  ),
-                  SwitchListTile(
-                    title: Text('AMOLED Black Theme', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-                    value: _isAmoledBlackEnabled,
-                    activeColor: Theme.of(context).colorScheme.primary,
-                    onChanged: (bool value) async {
-                      _performVibration();
-                      setState(() {
-                        _isAmoledBlackEnabled = value;
-                      });
-                      themeProvider.setAmoledBlack(value);
+                  const SizedBox(height: 12),
+                  SegmentedButton<AppDarkMode>(
+                    segments: const [
+                      ButtonSegment(
+                          value: AppDarkMode.system,
+                          icon: Icon(Icons.brightness_auto_rounded),
+                          label: Text('System')),
+                      ButtonSegment(
+                          value: AppDarkMode.light,
+                          icon: Icon(Icons.light_mode_rounded),
+                          label: Text('Light')),
+                      ButtonSegment(
+                          value: AppDarkMode.dark,
+                          icon: Icon(Icons.dark_mode_rounded),
+                          label: Text('Dark')),
+                    ],
+                    selected: {_darkMode},
+                    onSelectionChanged: (s) async {
+                      _vibrate();
+                      setState(() => _darkMode = s.first);
+                      _applyDarkMode(themeProvider);
                       await _savePreferences();
                     },
-                    subtitle:
-                        Text('Uses true black backgrounds for OLED screens.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
-                  ),
-                  const Divider(),
-                  ListTile(
-                    title: Text('Custom Theme Color', style: TextStyle(color: Theme.of(context).colorScheme.onSurface)),
-                    subtitle:
-                        Text('Current: #${_customColor.value.toRadixString(16).substring(2)}', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7))),
-                    trailing: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: _customColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Theme.of(context).dividerColor),
-                      ),
+                    style: SegmentedButton.styleFrom(
+                      selectedBackgroundColor: colorScheme.primaryContainer,
+                      selectedForegroundColor: colorScheme.onPrimaryContainer,
                     ),
-                    onTap: () {
-                      _performVibration();
-                      _openColorPicker();
-                    },
                   ),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 32),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: Text(
-              'Miscellaneous',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.onBackground,
-                  ),
+            const Divider(indent: 16, endIndent: 16, height: 1),
+            SwitchListTile(
+              secondary: Icon(
+                Icons.contrast_rounded,
+                color: _isAmoledBlack
+                    ? Colors.white
+                    : colorScheme.onSurfaceVariant,
+              ),
+              title: Row(
+                children: [
+                  Text('AMOLED Black',
+                      style: textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 8),
+                  if (_isAmoledBlack)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Text('ON',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5)),
+                    ),
+                ],
+              ),
+              subtitle: Text('True black backgrounds for OLED screens',
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.onSurfaceVariant)),
+              value: _isAmoledBlack,
+              activeColor: colorScheme.primary,
+              onChanged: (v) async {
+                _vibrate();
+                setState(() => _isAmoledBlack = v);
+                themeProvider.setAmoledBlack(v);
+                await _savePreferences();
+              },
+              tileColor: _isAmoledBlack ? Colors.black87 : null,
+              shape: const RoundedRectangleBorder(
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(16)),
+              ),
             ),
-          ),
-          Card(
-            elevation: 2.0,
-            margin: const EdgeInsets.symmetric(vertical: 8.0),
-            color: Theme.of(context).colorScheme.surface,
+          ]),
+          const SizedBox(height: 20),
+
+          // ── Developer Options ──────────────────────────────────────────
+          _SectionLabel(label: 'Advanced'),
+          Container(
+            decoration: BoxDecoration(
+              color: colorScheme.errorContainer.withOpacity(0.25),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: colorScheme.error.withOpacity(0.2)),
+            ),
             child: ListTile(
-              leading: const Icon(Icons.developer_mode_rounded),
-              title: const Text('Developer Options'),
-              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 18),
-              onTap: () async {
-                _performVibration();
+              leading:
+                  Icon(Icons.warning_amber_rounded, color: colorScheme.error),
+              title: Text('Developer Options',
+                  style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.error, fontWeight: FontWeight.w600)),
+              subtitle: Text('Danger zone — clear local data',
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.onSurfaceVariant)),
+              trailing: Icon(Icons.arrow_forward_ios_rounded,
+                  size: 16, color: colorScheme.error.withOpacity(0.7)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              onTap: () {
+                _vibrate();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const DeveloperOptionsPage()),
+                  MaterialPageRoute(
+                      builder: (_) => const DeveloperOptionsPage()),
                 );
               },
             ),
           ),
-          // TODO: Add more settings sections here as Cards or similar groupings
-          // Example:
-          // Padding(
-          //   padding: const EdgeInsets.symmetric(vertical: 8.0),
-          //   child: Text(
-          //     'Notification Settings',
-          //     style: Theme.of(context).textTheme.titleLarge,
-          //   ),
-          // ),
-          // Card(
-          //   child: Padding(
-          //     padding: const EdgeInsets.all(16.0),
-          //     child: Column(
-          //       children: [
-          //         // ... notification settings widgets ...
-          //       ],
-          //     ),
-          //   ),
-          // ),
+          const SizedBox(height: 32),
         ],
       ),
     );
   }
 }
 
-// New StatefulWidget for the Color Picker Dialog Content
-enum _ColorPickerType { primary, accent, wheel }
-
-class _ColorPickerDialogContent extends StatefulWidget {
-  final Color initialColor;
-  final List<Color> primaryColors;
-  final List<Color> accentColors;
-
-  const _ColorPickerDialogContent({
-    Key? key,
-    required this.initialColor,
-    required this.primaryColors,
-    required this.accentColors,
-  }) : super(key: key);
+// ─── Appearance Preview Card ──────────────────────────────────────────────────
+class _AppearancePreviewCard extends StatelessWidget {
+  final Color seedColor;
+  final bool isDark;
+  const _AppearancePreviewCard({required this.seedColor, required this.isDark});
 
   @override
-  _ColorPickerDialogContentState createState() => _ColorPickerDialogContentState();
+  Widget build(BuildContext context) {
+    final scheme = ColorScheme.fromSeed(
+        seedColor: seedColor,
+        brightness: isDark ? Brightness.dark : Brightness.light);
+    return Container(
+      height: 90,
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 16),
+          // Color swatches
+          _Swatch(color: scheme.primary, label: 'Primary'),
+          const SizedBox(width: 8),
+          _Swatch(color: scheme.secondary, label: 'Secondary'),
+          const SizedBox(width: 8),
+          _Swatch(color: scheme.tertiary, label: 'Tertiary'),
+          const SizedBox(width: 16),
+          // Mini text preview
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Amazing Grace',
+                    style: TextStyle(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+                const SizedBox(height: 2),
+                Text('How sweet the sound',
+                    style: TextStyle(
+                        color: scheme.onSurfaceVariant, fontSize: 11)),
+                const SizedBox(height: 4),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(6)),
+                  child: Text('♪ Favorites',
+                      style: TextStyle(
+                          color: scheme.onPrimaryContainer,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+      ),
+    );
+  }
 }
 
-class _ColorPickerDialogContentState extends State<_ColorPickerDialogContent> {
-  late Color _currentColor;
-  _ColorPickerType _selectedPickerType = _ColorPickerType.primary;
+class _Swatch extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _Swatch({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: color.withOpacity(0.3), blurRadius: 6)
+              ]),
+        ),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 9)),
+      ],
+    );
+  }
+}
+
+// ─── Reusable layout helpers ──────────────────────────────────────────────────
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel({required this.label});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Text(
+        label.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
+      ),
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
+  final List<Widget> children;
+  const _SettingsCard({required this.children});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+}
+
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w500)),
+                  Text(subtitle,
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Modern Color Picker (Bottom Sheet) ───────────────────────────────────────
+enum _PickerTab { primary, accent, spectrum }
+
+class _ModernColorPicker extends StatefulWidget {
+  final Color initialColor;
+  final List<Color> recentColors;
+  const _ModernColorPicker(
+      {required this.initialColor, required this.recentColors});
+
+  @override
+  State<_ModernColorPicker> createState() => _ModernColorPickerState();
+}
+
+class _ModernColorPickerState extends State<_ModernColorPicker> {
+  late Color _current;
+  _PickerTab _tab = _PickerTab.primary;
+  late TextEditingController _hexController;
+
+  static const _primaryColors = [
+    Colors.blue,
+    Colors.green,
+    Colors.red,
+    Colors.purple,
+    Colors.orange,
+    Colors.teal,
+    Colors.blueGrey,
+    Colors.indigo,
+    Colors.pink,
+    Colors.amber,
+    Colors.cyan,
+    Colors.lime,
+  ];
+  static const _accentColors = [
+    Colors.lightBlueAccent,
+    Colors.greenAccent,
+    Colors.redAccent,
+    Colors.purpleAccent,
+    Colors.orangeAccent,
+    Colors.tealAccent,
+    Colors.indigoAccent,
+    Colors.pinkAccent,
+    Colors.amberAccent,
+    Colors.cyanAccent,
+    Colors.limeAccent,
+  ];
+
+  void _vibrate() async {
+    if (await Vibration.hasVibrator() == true)
+      Vibration.vibrate(duration: 18, amplitude: 60);
+  }
 
   @override
   void initState() {
     super.initState();
-    _currentColor = widget.initialColor;
+    _current = widget.initialColor;
+    _hexController = TextEditingController(text: _toHex(_current));
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  @override
+  void dispose() {
+    _hexController.dispose();
+    super.dispose();
   }
 
-  // Helper function to generate shades for the BlockPicker
-  List<Color> _generateShades(Color color) {
-    final List<Color> shades = [];
-    for (int i = 1; i <= 6; i++) { // Generate 6 shades
-      final double factor = i / 7.0; // Adjust factor for desired lightness/darkness
-      shades.add(HSLColor.fromColor(color).withLightness(factor).toColor());
+  String _toHex(Color c) =>
+      c.value.toRadixString(16).substring(2).toUpperCase();
+
+  void _updateColor(Color c) {
+    setState(() {
+      _current = c;
+      _hexController.text = _toHex(c);
+    });
+  }
+
+  void _applyHex(String text) {
+    final clean = text.replaceAll('#', '').trim();
+    if (clean.length == 6) {
+      final val = int.tryParse('FF$clean', radix: 16);
+      if (val != null) _updateColor(Color(val));
     }
-    // Add some darker shades too for more variety, similar to the image
-    for (int i = 1; i <= 6; i++) {
-        final double factor = 1.0 - (i / 10.0); // Lighter to darker
-        final Color baseShade = HSLColor.fromColor(color).withSaturation(0.8).withLightness(factor * 0.8 + 0.1).toColor(); // Ensure not too dark
-        shades.add(baseShade);
-    }
-    // Ensure unique colors and sort by lightness (optional, but can make it look more organized)
-    return shades.toSet().toList()..sort((a, b) => HSLColor.fromColor(a).lightness.compareTo(HSLColor.fromColor(b).lightness));
   }
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
-    final Color dialogBackgroundColor = theme.brightness == Brightness.dark 
-        ? colorScheme.surfaceVariant.withOpacity(0.95) 
-        : colorScheme.surface;
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: dialogBackgroundColor,
-        borderRadius: BorderRadius.circular(20.0),
-      ),
-      clipBehavior: Clip.antiAlias,
-      width: MediaQuery.of(context).size.width * 0.9, 
-      height: 600, 
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text('Choose Theme Color', style: theme.textTheme.titleLarge?.copyWith(color: colorScheme.onSurface)),
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.check, color: colorScheme.primary),
-                      onPressed: () {
-                        _performVibration();
-                        Navigator.of(context).pop(_currentColor);
-                      },
-                      style: IconButton.styleFrom(splashFactory: InkSparkle.splashFactory),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant),
-                      onPressed: () {
-                        _performVibration();
-                        Navigator.of(context).pop();
-                      },
-                      style: IconButton.styleFrom(splashFactory: InkSparkle.splashFactory),
-                    ),
-                  ],
-                )
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
-            child: Container(
-              decoration: BoxDecoration(
-                // border: Border.all(color: colorScheme.outline.withOpacity(0.7), width: 1.0), // Keep or remove based on visual preference later
-                borderRadius: BorderRadius.circular(12.0), // This will round the group
-              ),
-              child: Padding(
-                padding: const EdgeInsets.only(top: 12.0), // Add extra space above the ToggleButtons
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: ToggleButtons(
-                    isSelected: [
-                      _selectedPickerType == _ColorPickerType.primary,
-                      _selectedPickerType == _ColorPickerType.accent,
-                      _selectedPickerType == _ColorPickerType.wheel,
-                    ],
-                    onPressed: (index) {
-                      _performVibration();
-                      setState(() {
-                        _selectedPickerType = _ColorPickerType.values[index];
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(11.0), // Rounds each button
-                    fillColor: colorScheme.primary.withOpacity(0.2), // Lighter fill for selected
-                    selectedColor: colorScheme.primary, // Text color for selected
-                    color: colorScheme.onSurfaceVariant, // Text color for unselected
-                    borderColor: colorScheme.outline.withOpacity(0.5), // Border for unselected
-                    selectedBorderColor: colorScheme.primary, // Border for selected (matches text)
-                    borderWidth: 1.5, // Make borders visible
-                    constraints: const BoxConstraints(minHeight: 38.0, minWidth: 70.0), // Adjust minWidth if needed to fill
-                    children: const [
-                      Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Primary')), // Adjusted padding
-                      Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Accent')),  // Adjusted padding
-                      Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Spectrum')),   // Adjusted padding
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: _buildCurrentPicker(),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(color: _currentColor, shape: BoxShape.circle, border: Border.all(color: colorScheme.outline)),
-                ),
-                Text('#${_currentColor.value.toRadixString(16).substring(2).toUpperCase()}', style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant)),
-                IconButton(
-                  icon: Icon(Icons.copy, size: 20, color: colorScheme.primary),
-                  onPressed: () {
-                    _performVibration();
-                    Clipboard.setData(ClipboardData(text: '#${_currentColor.value.toRadixString(16).substring(2).toUpperCase()}'));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Color code copied!', style: TextStyle(color: colorScheme.onInverseSurface)),
-                        backgroundColor: colorScheme.inverseSurface,
-                        duration: const Duration(seconds: 1)
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () {
-                    _performVibration();
-                    Navigator.of(context).pop();
-                  },
-                  style: TextButton.styleFrom(splashFactory: InkSparkle.splashFactory),
-                  child: Text('CANCEL', style: TextStyle(color: colorScheme.primary)),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () {
-                    _performVibration();
-                    Navigator.of(context).pop(_currentColor);
-                  },
-                  style: TextButton.styleFrom(splashFactory: InkSparkle.splashFactory),
-                  child: Text('OK', style: TextStyle(color: colorScheme.primary)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCurrentPicker() {
-    switch (_selectedPickerType) {
-      case _ColorPickerType.primary:
-        return SizedBox(
-          height: 200,
-          child: BlockPicker(
-            pickerColor: _currentColor,
-            onColorChanged: (color) => setState(() => _currentColor = color),
-            availableColors: widget.primaryColors,
-            itemBuilder: (color, isCurrentColor, changeColor) {
-              return Container(
-                margin: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      _performVibration();
-                      changeColor();
-                    },
-                    borderRadius: BorderRadius.circular(50),
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 210),
-                      opacity: isCurrentColor ? 1 : 0,
-                      child: Icon(Icons.done, color: useWhiteForeground(color) ? Colors.white : Colors.black),
-                    ),
-                  ),
-                ),
-              );
-            },
-            layoutBuilder: (BuildContext context, List<Color> colors, PickerItem child) {
-              return GridView.count(
-                crossAxisCount: 6,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 4.0,
-                crossAxisSpacing: 4.0,
-                children: colors.map((Color color) => child(color)).toList(),
-              );
-            },
-          ),
-        );
-      case _ColorPickerType.accent:
-        return SizedBox(
-          height: 200,
-          child: BlockPicker(
-            pickerColor: _currentColor,
-            onColorChanged: (color) => setState(() => _currentColor = color),
-            availableColors: widget.accentColors,
-            itemBuilder: (color, isCurrentColor, changeColor) {
-              return Container(
-                margin: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      _performVibration();
-                      changeColor();
-                    },
-                    borderRadius: BorderRadius.circular(50),
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 210),
-                      opacity: isCurrentColor ? 1 : 0,
-                      child: Icon(Icons.done, color: useWhiteForeground(color) ? Colors.white : Colors.black),
-                    ),
-                  ),
-                ),
-              );
-            },
-            layoutBuilder: (BuildContext context, List<Color> colors, PickerItem child) {
-              return GridView.count(
-                crossAxisCount: 6,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 4.0,
-                crossAxisSpacing: 4.0,
-                children: colors.map((Color color) => child(color)).toList(),
-              );
-            },
-          ),
-        );
-      case _ColorPickerType.wheel:
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 16.0),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 220, // Adjust width as needed
-                  height: 280, // Adjust height as needed
-                  child: ColorPicker(
-                    pickerColor: _currentColor,
-                    onColorChanged: (color) {
-                      _performVibration();
-                      setState(() => _currentColor = color);
-                    },
-                    colorPickerWidth: 220, // Adjust as needed
-                    pickerAreaHeightPercent: 0.6, // Adjusted from 0.7 to 0.6
-                    enableAlpha: false, // Alpha is not in the target UI
-                    displayThumbColor: true,
-                    paletteType: PaletteType.hsvWithSaturation, // For the square saturation/value picker
-                    pickerAreaBorderRadius: BorderRadius.circular(20.0), // Rounded corners for the picker area
-                    labelTypes: const [], // No labels like "R", "G", "B"
-                  ),
-                ),
-                const SizedBox(height: 16), // Small space below the color selector
-                Text("Shades", style: Theme.of(this.context).textTheme.titleMedium),
-                SizedBox(
-                  height: 100, // Adjust as needed
-                  child: BlockPicker(
-                    pickerColor: _currentColor, // This will highlight the selected color if it's in the swatches
-                    onColorChanged: (color) {
-                      _performVibration();
-                      setState(() => _currentColor = color);
-                    },
-                    availableColors: _generateShades(_currentColor), // Dynamically generate shades
-                    layoutBuilder: (builderContext, colors, child) {
-                      return GridView.count(
-                        crossAxisCount: 6, // Number of swatches per row
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        children: colors.map((color) => child(color)).toList(),
-                      );
-                    },
-                    itemBuilder: (color, isCurrentColor, changeColor) {
-                      return Builder(
-                        builder: (builderContext) {
-                          return Container(
-                            margin: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: color,
-                              border: Border.all(
-                                color: Theme.of(builderContext).dividerColor,
-                                width: isCurrentColor ? 2.0 : 1.0,
-                              ),
-                            ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () {
-                                  _performVibration();
-                                  changeColor();
-                                },
-                                borderRadius: BorderRadius.circular(50),
-                                child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 210),
-                                  opacity: isCurrentColor ? 1 : 0,
-                                  child: Icon(
-                                    Icons.done,
-                                    color: useWhiteForeground(color) ? Colors.white : Colors.black,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-    }
-  }
-}
-
-class DeveloperOptionsPage extends StatelessWidget {
-  const DeveloperOptionsPage({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Developer Options')),
-      backgroundColor: Theme.of(context).colorScheme.background,
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
+    return DraggableScrollableSheet(
+      initialChildSize: 0.82,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (ctx, scrollCtrl) => Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerLow,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Danger Zone', style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.error)),
+            // Drag handle
+            const SizedBox(height: 10),
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colorScheme.onSurfaceVariant.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                )),
             const SizedBox(height: 16),
-            Card(
-              color: Theme.of(context).colorScheme.surface,
-              child: Padding(
-                padding: const EdgeInsets.all(10.0),
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.delete_forever_rounded),
-                  label: const Text('Clear Local DB'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                    foregroundColor: Theme.of(context).colorScheme.onError,
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
-                    textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                    elevation: 4.0,
-                    splashFactory: InkSparkle.splashFactory,
+
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Text('Choose Color',
+                      style: textTheme.titleLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      _vibrate();
+                      Navigator.of(context).pop();
+                    },
+                    child: Text('Cancel',
+                        style: TextStyle(color: colorScheme.onSurfaceVariant)),
                   ),
-                  onPressed: () async {
-                    final bool? hasVibration = await Vibration.hasVibrator();
-                    if (hasVibration == true) {
-                      Vibration.vibrate(duration: 18, amplitude: 60);
-                    }
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Confirm'),
-                        content: const Text('Are you sure you want to delete the local encrypted DB? This cannot be undone.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () async {
-                              final bool? hasVibration = await Vibration.hasVibrator();
-                              if (hasVibration == true) {
-                                Vibration.vibrate(duration: 18, amplitude: 60);
-                              }
-                              Navigator.of(context).pop(false);
-                            },
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () async {
-                              final bool? hasVibration = await Vibration.hasVibrator();
-                              if (hasVibration == true) {
-                                Vibration.vibrate(duration: 18, amplitude: 60);
-                              }
-                              Navigator.of(context).pop(true);
-                            },
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true) {
-                      final dbPath = await getDatabasesPath();
-                      final pathEnglish = join(dbPath, 'songs_encrypted.db');
-                      final pathKannada = join(dbPath, 'kannada_songs_encrypted.db');
-                      await deleteDatabase(pathEnglish);
-                      await deleteDatabase(pathKannada);
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Local encrypted DBs deleted! Restart the app to re-sync.')),
-                        );
-                      }
-                    }
-                  },
+                  const SizedBox(width: 4),
+                  FilledButton(
+                    onPressed: () {
+                      _vibrate();
+                      Navigator.of(context).pop(_current);
+                    },
+                    child: const Text('Apply'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Large color preview swatch
+            Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: _current,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                        color: _current.withOpacity(0.5),
+                        blurRadius: 20,
+                        offset: const Offset(0, 6))
+                  ],
+                  border:
+                      Border.all(color: colorScheme.outlineVariant, width: 3),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.info_outline, color: Colors.blueGrey, size: 20),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'This will delete all locally stored songs from the encrypted DB. Connect to the internet to re-download the songs and go offline again.',
-                    style: TextStyle(fontSize: 13, color: Colors.blueGrey),
+            const SizedBox(height: 12),
+
+            // Hex input
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 60),
+              child: TextField(
+                controller: _hexController,
+                textAlign: TextAlign.center,
+                style: textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5),
+                decoration: InputDecoration(
+                  prefixText: '#',
+                  prefixStyle: TextStyle(
+                      color: colorScheme.primary, fontWeight: FontWeight.bold),
+                  filled: true,
+                  fillColor: colorScheme.surfaceContainerHighest,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  suffixIcon: IconButton(
+                    icon: Icon(Icons.copy_rounded,
+                        size: 18, color: colorScheme.primary),
+                    onPressed: () {
+                      _vibrate();
+                      Clipboard.setData(
+                          ClipboardData(text: '#${_toHex(_current)}'));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Color copied!'),
+                        duration: Duration(seconds: 1),
+                        behavior: SnackBarBehavior.floating,
+                      ));
+                    },
                   ),
                 ),
-              ],
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
+                  LengthLimitingTextInputFormatter(6)
+                ],
+                onSubmitted: _applyHex,
+                onChanged: _applyHex,
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            // Tabs
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: SegmentedButton<_PickerTab>(
+                segments: const [
+                  ButtonSegment(
+                      value: _PickerTab.primary,
+                      icon: Icon(Icons.palette_rounded),
+                      label: Text('Palette')),
+                  ButtonSegment(
+                      value: _PickerTab.accent,
+                      icon: Icon(Icons.brightness_7_rounded),
+                      label: Text('Accent')),
+                  ButtonSegment(
+                      value: _PickerTab.spectrum,
+                      icon: Icon(Icons.colorize_rounded),
+                      label: Text('Wheel')),
+                ],
+                selected: {_tab},
+                onSelectionChanged: (s) {
+                  _vibrate();
+                  setState(() => _tab = s.first);
+                },
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: colorScheme.primaryContainer,
+                  selectedForegroundColor: colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Picker body
+            Expanded(
+              child: SingleChildScrollView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_tab == _PickerTab.primary || _tab == _PickerTab.accent)
+                      _ColorGrid(
+                        colors: _tab == _PickerTab.primary
+                            ? _primaryColors
+                            : _accentColors,
+                        selected: _current,
+                        onSelect: (c) {
+                          _vibrate();
+                          _updateColor(c);
+                        },
+                      )
+                    else
+                      Center(
+                        child: ColorPicker(
+                          pickerColor: _current,
+                          onColorChanged: (c) {
+                            _vibrate();
+                            _updateColor(c);
+                          },
+                          colorPickerWidth:
+                              MediaQuery.of(context).size.width - 80,
+                          pickerAreaHeightPercent: 0.55,
+                          enableAlpha: false,
+                          displayThumbColor: true,
+                          paletteType: PaletteType.hsvWithSaturation,
+                          pickerAreaBorderRadius: BorderRadius.circular(16),
+                          labelTypes: const [],
+                        ),
+                      ),
+
+                    // Recent colors
+                    if (widget.recentColors.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      Text('Recently Used',
+                          style: textTheme.labelMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              letterSpacing: 0.5)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: widget.recentColors
+                            .map((c) => GestureDetector(
+                                  onTap: () {
+                                    _vibrate();
+                                    _updateColor(c);
+                                  },
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: c,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: c.value == _current.value
+                                            ? colorScheme.primary
+                                            : colorScheme.outlineVariant,
+                                        width:
+                                            c.value == _current.value ? 3 : 1.5,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                            color: c.withOpacity(0.3),
+                                            blurRadius: 4)
+                                      ],
+                                    ),
+                                  ),
+                                ))
+                            .toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
   }
-} 
+}
+
+class _ColorGrid extends StatelessWidget {
+  final List<Color> colors;
+  final Color selected;
+  final ValueChanged<Color> onSelect;
+  const _ColorGrid(
+      {required this.colors, required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 6,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 1,
+      ),
+      itemCount: colors.length,
+      itemBuilder: (_, i) {
+        final c = colors[i];
+        final isSelected = c.value == selected.value;
+        return GestureDetector(
+          onTap: () => onSelect(c),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            decoration: BoxDecoration(
+              color: c,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.transparent,
+                width: 3,
+              ),
+              boxShadow: [
+                BoxShadow(
+                    color: c.withOpacity(0.4),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2))
+              ],
+            ),
+            child: isSelected
+                ? Icon(Icons.check_rounded,
+                    color: useWhiteForeground(c) ? Colors.white : Colors.black,
+                    size: 20)
+                : null,
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Developer Options (unchanged logic, restyled) ────────────────────────────
+class DeveloperOptionsPage extends StatelessWidget {
+  const DeveloperOptionsPage({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Developer Options')),
+      backgroundColor: colorScheme.surface,
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Danger Zone',
+                style: textTheme.titleLarge?.copyWith(
+                    color: colorScheme.error, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text('Actions here cannot be undone.',
+                style: textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 20),
+            Container(
+              decoration: BoxDecoration(
+                color: colorScheme.errorContainer.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: colorScheme.error.withOpacity(0.3)),
+              ),
+              child: ListTile(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                leading: Icon(Icons.delete_forever_rounded,
+                    color: colorScheme.error),
+                title: Text('Clear Local Database',
+                    style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.error, fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                    'Deletes all locally cached songs. Connect to the internet to re-download.',
+                    style: textTheme.bodySmall
+                        ?.copyWith(color: colorScheme.onSurfaceVariant)),
+                trailing: Icon(Icons.chevron_right_rounded,
+                    color: colorScheme.error.withOpacity(0.6)),
+                onTap: () async {
+                  final bool? hasVibration = await Vibration.hasVibrator();
+                  if (hasVibration == true)
+                    Vibration.vibrate(duration: 18, amplitude: 60);
+                  if (!context.mounted) return;
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      icon: Icon(Icons.warning_amber_rounded,
+                          color: colorScheme.error, size: 36),
+                      title: const Text('Delete Local Database?'),
+                      content: const Text(
+                          'This will remove all locally stored songs. The app will re-sync from the cloud when you reconnect to the internet.'),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('Cancel')),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                              backgroundColor: colorScheme.error),
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true && context.mounted) {
+                    final dbPath = await getDatabasesPath();
+                    await deleteDatabase(p.join(dbPath, 'songs_encrypted.db'));
+                    await deleteDatabase(
+                        p.join(dbPath, 'kannada_songs_encrypted.db'));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text(
+                              'Local databases cleared — restart to re-sync.'),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

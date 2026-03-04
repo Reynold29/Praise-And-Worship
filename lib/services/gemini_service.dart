@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class GeminiService {
-  static Future<Map<String, String>> parseSongText(String text, String apiKey, {bool addChords = false}) async {
-    final url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey';
+  static Future<Map<String, String>> parseSongText(String text, String apiKey,
+      {bool addChords = false}) async {
+    final url =
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey';
     final prompt = '''
 Extract the full song title, author, and all lyrics from the following text.
 Reply with the title on the first line, author on the second line, a blank line, then the full lyrics exactly as they appear, preserving all verses and choruses.
@@ -31,7 +33,8 @@ $text
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Gemini API error: ${response.statusCode} ${response.body}');
+      throw Exception(
+          'Gemini API error: ${response.statusCode} ${response.body}');
     }
     final data = jsonDecode(response.body);
     final candidates = data['candidates'];
@@ -39,7 +42,9 @@ $text
       throw Exception('No candidates in Gemini response');
     }
     final content = candidates[0]['content'];
-    if (content == null || content['parts'] == null || content['parts'].isEmpty) {
+    if (content == null ||
+        content['parts'] == null ||
+        content['parts'].isEmpty) {
       throw Exception('No content parts in Gemini response');
     }
     final responseText = content['parts'][0]['text'];
@@ -57,4 +62,4 @@ $text
     final lyrics = lines.sublist(lyricsStart).join('\n').trim();
     return {'title': title, 'author': author, 'lyrics': lyrics};
   }
-} 
+}

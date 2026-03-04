@@ -7,7 +7,8 @@ class AddManualSongScreen extends StatefulWidget {
   final String? initialTitle;
   final String? initialLyrics;
   final String? initialAuthor;
-  const AddManualSongScreen({super.key, this.initialTitle, this.initialLyrics, this.initialAuthor});
+  const AddManualSongScreen(
+      {super.key, this.initialTitle, this.initialLyrics, this.initialAuthor});
 
   @override
   _AddManualSongScreenState createState() => _AddManualSongScreenState();
@@ -24,7 +25,7 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
   final _youtubeLinkController = TextEditingController();
   final _reviewNotesController = TextEditingController();
   final _submittedByController = TextEditingController();
-  
+
   String? _selectedLanguage;
   final List<String> _languages = [
     'English',
@@ -99,20 +100,24 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
       try {
-        final success = await SupabaseService.instance.submitSongForReview(songData);
+        final success =
+            await SupabaseService.instance.submitSongForReview(songData);
         Navigator.of(context).pop(); // Remove loading
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Song submitted for review!')),
           );
           Navigator.pop(context); // Pop back to options screen
-          Navigator.pop(context); // Pop back to home screen (or wherever it came from before options)
+          Navigator.pop(
+              context); // Pop back to home screen (or wherever it came from before options)
         }
       } catch (e) {
         Navigator.of(context).pop(); // Remove loading
         String errorMsg = 'Failed to submit song: ';
         // Graceful handling for network errors
-        if (e.toString().contains('SocketException') || e.toString().contains('ClientException') || e.toString().contains('Failed host lookup')) {
+        if (e.toString().contains('SocketException') ||
+            e.toString().contains('ClientException') ||
+            e.toString().contains('Failed host lookup')) {
           errorMsg = 'Please check your internet connection and try again.';
         } else {
           errorMsg += e.toString();
@@ -144,7 +149,8 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Add Song Manually', style: TextStyle(color: colorScheme.onSurface)),
+        title: Text('Add Song Manually',
+            style: TextStyle(color: colorScheme.onSurface)),
         backgroundColor: colorScheme.surface,
         elevation: 0,
         iconTheme: IconThemeData(color: colorScheme.onSurface),
@@ -218,8 +224,10 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                 },
                 decoration: InputDecoration(
                   labelText: 'Language',
-                  prefixIcon: Icon(Icons.language_rounded, color: colorScheme.primary),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
+                  prefixIcon:
+                      Icon(Icons.language_rounded, color: colorScheme.primary),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0)),
                   filled: true,
                   fillColor: colorScheme.surfaceVariant.withAlpha(100),
                 ),
@@ -270,8 +278,10 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                   backgroundColor: colorScheme.primary,
                   foregroundColor: colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  textStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                  textStyle: textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.0)),
                   elevation: 4.0,
                   splashFactory: InkSparkle.splashFactory,
                 ),
@@ -322,4 +332,4 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
       selectionControls: MaterialTextSelectionControls(),
     );
   }
-} 
+}

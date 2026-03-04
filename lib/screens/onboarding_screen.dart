@@ -103,7 +103,8 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 30),
                     child: SingleChildScrollView(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -159,15 +160,19 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                             elevation: 2,
                             child: TextField(
                               controller: _usernameController,
-                              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w500),
+                              style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w500),
                               decoration: InputDecoration(
                                 hintText: 'Enter your name',
-                                hintStyle: TextStyle(color: Colors.grey.shade600),
+                                hintStyle:
+                                    TextStyle(color: Colors.grey.shade600),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(22),
                                   borderSide: BorderSide.none,
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 22, vertical: 16),
                                 filled: true,
                                 fillColor: Colors.white.withOpacity(0.85),
                               ),
@@ -178,17 +183,21 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: _isLoading ? null : _completeOnboarding,
+                              onPressed:
+                                  _isLoading ? null : _completeOnboarding,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.blueAccent,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                                textStyle: const TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.bold),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(22),
                                 ),
                                 elevation: 4,
-                                shadowColor: Colors.blueAccent.withOpacity(0.18),
+                                shadowColor:
+                                    Colors.blueAccent.withOpacity(0.18),
                               ),
                               child: _isLoading
                                   ? const SizedBox(
@@ -196,7 +205,9 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                                       height: 24,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 3,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Colors.white),
                                       ),
                                     )
                                   : const Text('Get Started'),
@@ -207,7 +218,8 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                             onPressed: _skipOnboarding,
                             style: TextButton.styleFrom(
                               foregroundColor: Colors.white.withOpacity(0.92),
-                              textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                              textStyle: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w500),
                               splashFactory: InkSparkle.splashFactory,
                             ),
                             child: const Text('Skip for now'),

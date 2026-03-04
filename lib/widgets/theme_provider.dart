@@ -23,7 +23,8 @@ class ThemeProvider with ChangeNotifier {
     // _loadPreferencesAndInitialize(); // Will be called by initialize()
   }
 
-  Color get defaultSeedColor => _defaultSeedColor; // Getter for default seed color
+  Color get defaultSeedColor =>
+      _defaultSeedColor; // Getter for default seed color
 
   Future<void> initialize() async {
     await _loadPreferencesAndInitialize();
@@ -43,12 +44,13 @@ class ThemeProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _generateColorSchemes() async { // Removed await from plugin
+  Future<void> _generateColorSchemes() async {
+    // Removed await from plugin
     // ColorScheme? lightDynamic;
     // ColorScheme? darkDynamic;
 
     // FINAL COREPALETTE REMOVED
-    // final corePalette = await DynamicColorPlugin.getCorePalette(); 
+    // final corePalette = await DynamicColorPlugin.getCorePalette();
     // if (corePalette != null) {
     //   lightDynamic = corePalette.toColorScheme();
     //   darkDynamic = corePalette.toColorScheme(brightness: Brightness.dark);
@@ -57,9 +59,11 @@ class ThemeProvider with ChangeNotifier {
     // Use _customSeedColor if available, otherwise _defaultSeedColor.
     // Dynamic colors will be handled by DynamicColorBuilder in the UI.
     Color seed = _customSeedColor ?? _defaultSeedColor;
-    
-    _lightColorScheme = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light);
-    _darkColorScheme = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+
+    _lightColorScheme =
+        ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light);
+    _darkColorScheme =
+        ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
 
     if (_isDarkMode && _isAmoledBlack) {
       _darkColorScheme = _darkColorScheme?.copyWith(
@@ -74,8 +78,12 @@ class ThemeProvider with ChangeNotifier {
   bool get isAmoledBlack => _isAmoledBlack;
   // AppThemeMode get themeStyle => _themeStyle;
 
-  ColorScheme get lightColorScheme => _lightColorScheme ?? ColorScheme.fromSeed(seedColor: _defaultSeedColor);
-  ColorScheme get darkColorScheme => _darkColorScheme ?? ColorScheme.fromSeed(seedColor: _defaultSeedColor, brightness: Brightness.dark);
+  ColorScheme get lightColorScheme =>
+      _lightColorScheme ?? ColorScheme.fromSeed(seedColor: _defaultSeedColor);
+  ColorScheme get darkColorScheme =>
+      _darkColorScheme ??
+      ColorScheme.fromSeed(
+          seedColor: _defaultSeedColor, brightness: Brightness.dark);
 
   Future<void> _savePreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -95,8 +103,10 @@ class ThemeProvider with ChangeNotifier {
   }
 
   void setCustomSeedColor(Color color) async {
-    if (color == Colors.transparent) { // Check if the color is the transparent signal
-      _customSeedColor = null; // Set to null to allow dynamic/default colors to take precedence
+    if (color == Colors.transparent) {
+      // Check if the color is the transparent signal
+      _customSeedColor =
+          null; // Set to null to allow dynamic/default colors to take precedence
     } else {
       _customSeedColor = color;
     }
@@ -107,7 +117,8 @@ class ThemeProvider with ChangeNotifier {
 
   void setAmoledBlack(bool isEnabled) async {
     _isAmoledBlack = isEnabled;
-    if (_isDarkMode) { // Only regenerate if in dark mode, as it only affects dark theme
+    if (_isDarkMode) {
+      // Only regenerate if in dark mode, as it only affects dark theme
       await _generateColorSchemes();
     }
     await _savePreferences();

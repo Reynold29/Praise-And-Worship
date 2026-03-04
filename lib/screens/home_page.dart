@@ -4,6 +4,7 @@ import 'package:worshipcompanion/widgets/sliding_cards.dart';
 import 'package:worshipcompanion/screens/explore_Screen.dart';
 import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
+import 'dart:async';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +17,12 @@ import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/screens/song_detail_screen.dart';
+import 'package:worshipcompanion/utils/song_utils.dart';
+import 'package:worshipcompanion/widgets/auth_provider.dart';
+import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'package:worshipcompanion/screens/auth_screen.dart';
+import 'package:worshipcompanion/widgets/sync_dialog.dart';
+import 'package:worshipcompanion/utils/app_logger.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -44,6 +51,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _checkForUpdate() async {
+    // in_app_update is Google Play only — no-op on iOS.
+    if (!Platform.isAndroid) return;
     try {
       final AppUpdateInfo updateInfo = await InAppUpdate.checkForUpdate();
       if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
@@ -55,7 +64,7 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (e) {
-      print('Failed to check for update: $e');
+      AppLogger.d('App', 'Failed to check for update: $e');
     }
   }
 
@@ -79,7 +88,11 @@ class HomeScreen extends StatefulWidget {
   final String username;
   final String? profileImagePath;
   final VoidCallback onProfileUpdated;
-  const HomeScreen({super.key, required this.username, this.profileImagePath, required this.onProfileUpdated});
+  const HomeScreen(
+      {super.key,
+      required this.username,
+      this.profileImagePath,
+      required this.onProfileUpdated});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -87,7 +100,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   Map<String, List<Song>> _favoritesByLang = {};
-  bool _loadingFavs = true;
+  bool _loadingFavs = false;
   late FavoriteProvider _favoriteProviderInstance;
   bool _showSearchBar = false;
   final TextEditingController _globalSearchController = TextEditingController();
@@ -100,7 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _favoriteProviderInstance = Provider.of<FavoriteProvider>(context, listen: false);
+    _favoriteProviderInstance =
+        Provider.of<FavoriteProvider>(context, listen: false);
     _favoriteProviderInstance.addListener(_onFavoritesChanged);
     _loadFavorites();
   }
@@ -117,13 +131,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadFavorites() async {
-    setState(() { _loadingFavs = true; });
+    setState(() {
+      _loadingFavs = true;
+    });
     final favKeys = _favoriteProviderInstance.favoriteSongKeys;
-    print('[_loadFavorites HomeScreen] Fetched favKeys from provider: $favKeys');
 
     final allEnglish = await LocalDatabaseService.instance.fetchAllSongs();
-    final allKannada = await LocalDatabaseService.instance.fetchAllKannadaSongs();
-    print('[_loadFavorites HomeScreen] Fetched English songs: ${allEnglish.length}, Kannada songs: ${allKannada.length}');
+    final allKannada =
+        await LocalDatabaseService.instance.fetchAllKannadaSongs();
+    final allOther = await LocalDatabaseService.instance.fetchAllOtherSongs();
 
     Map<String, List<Song>> favs = {
       'English': [],
@@ -133,12 +149,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (final key in favKeys) {
       final parts = key.split('|');
-      if (parts.length != 2) {
-        print('[_loadFavorites HomeScreen] Skipping invalid key: $key');
-        continue;
-      }
+      if (parts.length != 2) continue;
       final id = parts[1];
-      print('[_loadFavorites HomeScreen] Processing key: $key, id: $id');
 
       Song? foundSong;
       String actualDbCategory = '';
@@ -146,27 +158,30 @@ class _HomeScreenState extends State<HomeScreen> {
       foundSong = _firstWhereOrNull(allEnglish, (s) => s.id == id);
       if (foundSong != null) {
         actualDbCategory = foundSong.category;
-        print('[_loadFavorites HomeScreen] Found English song: ${foundSong.title}, actualDbCategory: ${foundSong.category}');
       } else {
         foundSong = _firstWhereOrNull(allKannada, (s) => s.id == id);
         if (foundSong != null) {
           actualDbCategory = foundSong.category;
-          print('[_loadFavorites HomeScreen] Found Kannada song: ${foundSong.title}, actualDbCategory: ${foundSong.category}');
+        } else {
+          foundSong = _firstWhereOrNull(allOther, (s) => s.id == id);
+          if (foundSong != null) {
+            actualDbCategory = foundSong.category;
+          }
         }
       }
 
       if (foundSong != null) {
-        String displayLang;
-        // Use normalization function for mapping
-        displayLang = mapCategoryToDisplayLang(actualDbCategory);
+        final displayLang = mapCategoryToDisplayLang(actualDbCategory);
         favs[displayLang]!.add(foundSong);
-        print('[_loadFavorites HomeScreen] Added song to category: ' + displayLang + ', title: ' + foundSong.title);
       } else {
-        print('[_loadFavorites HomeScreen] Song not found for ID: $id in either English or Kannada databases. Removing from favorites.');
+        // Song was deleted from DB — quietly remove from favourites
+        AppLogger.d('HomeScreen', 'Stale favourite removed: $id');
         _favoriteProviderInstance.toggleFavorite('', id);
       }
     }
-    print('[_loadFavorites HomeScreen] Final favs map: $favs');
+
+    AppLogger.d('HomeScreen',
+        'Favs loaded — E:${favs['English']!.length} K:${favs['Kannada']!.length} O:${favs['Other']!.length}');
     setState(() {
       _favoritesByLang = favs;
       _loadingFavs = false;
@@ -211,11 +226,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                   child: Hero(
                     tag: 'user_profile_avatar',
-                    child: widget.profileImagePath != null && widget.profileImagePath!.isNotEmpty
+                    child: widget.profileImagePath != null &&
+                            widget.profileImagePath!.isNotEmpty
                         ? CircleAvatar(
                             radius: 28.0,
                             backgroundColor: colorScheme.primaryContainer,
-                            backgroundImage: FileImage(File(widget.profileImagePath!)),
+                            backgroundImage:
+                                FileImage(File(widget.profileImagePath!)),
                           )
                         : CircleAvatar(
                             radius: 28.0,
@@ -274,7 +291,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 22.0, vertical: 18.0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 22.0, vertical: 18.0),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -328,23 +346,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Hero(
                       tag: 'global_search_hero',
-                      createRectTween: (begin, end) => MaterialRectArcTween(begin: begin, end: end),
-                      child: Material(
-                        color: colorScheme.primary,
-                        borderRadius: BorderRadius.circular(16),
-                        elevation: 4,
-                        child: InkWell(
+                      createRectTween: (begin, end) =>
+                          MaterialRectArcTween(begin: begin, end: end),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer.withOpacity(0.4),
                           borderRadius: BorderRadius.circular(16),
-                          splashColor: colorScheme.onPrimary.withOpacity(0.18),
-                          highlightColor: colorScheme.onPrimary.withOpacity(0.08),
-                          onTap: () async {
+                        ),
+                        child: TextButton.icon(
+                          onPressed: () async {
                             _performVibration();
                             setState(() {
                               _showSearchBar = true;
                             });
-                            await Future.delayed(const Duration(milliseconds: 10));
+                            await Future.delayed(
+                                const Duration(milliseconds: 10));
                             await Navigator.of(context).push(HeroDialogRoute(
-                              builder: (context) => _buildGlobalSearchDialog(context),
+                              builder: (context) =>
+                                  _buildGlobalSearchDialog(context),
                             ));
                             setState(() {
                               _showSearchBar = false;
@@ -353,13 +372,25 @@ class _HomeScreenState extends State<HomeScreen> {
                               _searchResults = [];
                             });
                           },
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Icon(
-                              Icons.search_rounded,
-                              size: 28,
-                              color: colorScheme.onPrimary,
+                          icon: Icon(
+                            Icons.search_rounded,
+                            size: 24,
+                            color: colorScheme.primary,
+                          ),
+                          label: Text(
+                            'Search',
+                            style: textTheme.labelLarge?.copyWith(
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w600,
                             ),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            splashFactory: InkSparkle.splashFactory,
                           ),
                         ),
                       ),
@@ -376,166 +407,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Opens the global search dialog as a proper StatefulWidget so songs are
+  /// loaded once in initState and filtering is fully in-memory (no per-keystroke
+  /// DB calls, no AnimatedSwitcher duplicate-key crashes).
   Widget _buildGlobalSearchDialog(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Center(
-          child: Hero(
-            tag: 'global_search_hero',
-            createRectTween: (begin, end) => MaterialRectArcTween(begin: begin, end: end),
-            child: Material(
-              color: Colors.black,
-              elevation: 8,
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.92,
-                constraints: const BoxConstraints(maxWidth: 480),
-                padding: const EdgeInsets.all(18.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _globalSearchController,
-                            autofocus: true,
-                            decoration: InputDecoration(
-                              hintText: 'Search all songs...',
-                              prefixIcon: Icon(Icons.search, color: Colors.white),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                              filled: true,
-                              fillColor: Colors.grey[900],
-                            ),
-                            style: const TextStyle(color: Colors.white),
-                            onChanged: (val) async {
-                              setState(() {
-                                _searchQuery = val;
-                                _searching = true;
-                              });
-                              final allEnglish = await LocalDatabaseService.instance.fetchAllSongs();
-                              final allKannada = await LocalDatabaseService.instance.fetchAllKannadaSongs();
-                              final query = val.toLowerCase();
-                              List<Song> results = [
-                                ...allEnglish,
-                                ...allKannada,
-                              ].where((s) {
-                                if (_filterLang == 'English' && (s.category.trim().toLowerCase() != 'english_data' && s.category.trim().toLowerCase() != 'english')) return false;
-                                if (_filterLang == 'Kannada' && (s.category.trim().toLowerCase() != 'kannada_data' && s.category.trim().toLowerCase() != 'kannada')) return false;
-                                return query.isEmpty ||
-                                  s.title.toLowerCase().contains(query) ||
-                                  (s.authorName?.toLowerCase().contains(query) ?? false);
-                              }).toList();
-                              // Sort
-                              if (_sortOrder == 'A-Z') {
-                                results.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
-                              } else if (_sortOrder == 'Z-A') {
-                                results.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
-                              } else if (_sortOrder == 'Recently Added') {
-                                results.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-                              }
-                              setState(() {
-                                _searchResults = results;
-                                _searching = false;
-                              });
-                            },
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        DropdownButton<String>(
-                          value: _filterLang,
-                          dropdownColor: Colors.grey[900],
-                          style: const TextStyle(color: Colors.white),
-                          items: const [
-                            DropdownMenuItem(value: 'All', child: Text('All')),
-                            DropdownMenuItem(value: 'English', child: Text('English')),
-                            DropdownMenuItem(value: 'Kannada', child: Text('Kannada')),
-                          ],
-                          onChanged: (val) {
-                            setState(() {
-                              _filterLang = val!;
-                            });
-                            _globalSearchController.text = _globalSearchController.text; // trigger search
-                          },
-                        ),
-                        const SizedBox(width: 12),
-                        DropdownButton<String>(
-                          value: _sortOrder,
-                          dropdownColor: Colors.grey[900],
-                          style: const TextStyle(color: Colors.white),
-                          items: const [
-                            DropdownMenuItem(value: 'A-Z', child: Text('A-Z')),
-                            DropdownMenuItem(value: 'Z-A', child: Text('Z-A')),
-                            DropdownMenuItem(value: 'Recently Added', child: Text('Recently Added')),
-                          ],
-                          onChanged: (val) {
-                            setState(() {
-                              _sortOrder = val!;
-                            });
-                            _globalSearchController.text = _globalSearchController.text; // trigger search
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (_searching)
-                      const Padding(
-                        padding: EdgeInsets.all(16.0),
-                        child: CircularProgressIndicator(),
-                      )
-                    else if (_searchResults.isEmpty && _searchQuery.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text('No results found.', style: TextStyle(color: colorScheme.onPrimary, fontSize: 16)),
-                      )
-                    else if (_searchResults.isNotEmpty)
-                      SizedBox(
-                        height: 350,
-                        child: ListView.builder(
-                          itemCount: _searchResults.length,
-                          itemBuilder: (context, idx) {
-                            final song = _searchResults[idx];
-                            return ListTile(
-                              title: Text(song.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                              subtitle: Text(song.authorName ?? '', style: const TextStyle(color: Colors.white70)),
-                              onTap: () {
-                                Navigator.of(context).pop();
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => SongDetailScreen(
-                                      tabData: {
-                                        'id': song.id,
-                                        'category': song.category,
-                                        'title': song.title,
-                                        'artist_name': song.authorName ?? '',
-                                        'author': song.authorName ?? '',
-                                        'key_signature': song.keySignature,
-                                        'lines': _convertSongToLines(song),
-                                      },
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+    return _GlobalSearchDialog(
+      onSongSelected: (song) {
+        Navigator.of(context).pop();
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SongDetailScreen(
+              tabData: {
+                'id': song.id,
+                'category': song.category,
+                'title': song.title,
+                'artist_name': song.authorName ?? '',
+                'author': song.authorName ?? '',
+                'key_signature': song.keySignature,
+                'lines': SongUtils.parseLyricsToLines(song.lyrics, song.chords),
+                'trans_lines':
+                    song.transLyrics != null && song.transLyrics!.isNotEmpty
+                        ? SongUtils.parseLyricsToLines(
+                            song.transLyrics!, song.chords)
+                        : null,
+              },
             ),
           ),
         );
@@ -572,7 +468,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 items: const [
                   DropdownMenuItem(value: 'A-Z', child: Text('A-Z')),
                   DropdownMenuItem(value: 'Z-A', child: Text('Z-A')),
-                  DropdownMenuItem(value: 'Recently Added', child: Text('Recently Added')),
+                  DropdownMenuItem(
+                      value: 'Recently Added', child: Text('Recently Added')),
                 ],
                 onChanged: (val) {
                   setState(() {
@@ -586,31 +483,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-  }
-
-  static List<Map<String, dynamic>> _convertSongToLines(Song song) {
-    final lyricLines = song.lyrics.split('\n');
-    final chordLines = (song.chords ?? '').split('\n');
-    final lines = <Map<String, dynamic>>[];
-    for (int i = 0; i < lyricLines.length; i++) {
-      if (i < chordLines.length && chordLines[i].trim().isNotEmpty) {
-        lines.add({'type': 'chords', 'chords': _parseChordsLineStatic(chordLines[i])});
-      }
-      lines.add({'type': 'lyric', 'lyric': lyricLines[i]});
-    }
-    return lines;
-  }
-
-  static List<Map<String, dynamic>> _parseChordsLineStatic(String chordLine) {
-    final chords = <Map<String, dynamic>>[];
-    final regex = RegExp(r'\S+');
-    for (final match in regex.allMatches(chordLine)) {
-      chords.add({
-        'note': match.group(0),
-        'pre_spaces': match.start,
-      });
-    }
-    return chords;
   }
 }
 
@@ -663,7 +535,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final status = await Permission.photos.request();
     if (!status.isGranted) return;
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    final picked =
+        await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
     if (picked != null) {
       // Crop the image
       final croppedFile = await ImageCropper().cropImage(
@@ -686,8 +559,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
       if (croppedFile != null) {
         final directory = await getApplicationDocumentsDirectory();
         final path = directory.path;
-        final fileName = 'profile_image_${DateTime.now().millisecondsSinceEpoch}.png';
-        final File newImage = await File(croppedFile.path).copy('$path/$fileName');
+        final fileName =
+            'profile_image_${DateTime.now().millisecondsSinceEpoch}.png';
+        final File newImage =
+            await File(croppedFile.path).copy('$path/$fileName');
         setState(() {
           _profileImagePath = newImage.path;
         });
@@ -753,7 +628,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       showModalBottomSheet(
                         context: context,
                         shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(18)),
                         ),
                         builder: (context) {
                           return SafeArea(
@@ -761,7 +637,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 ListTile(
-                                  leading: const Icon(Icons.photo_library_rounded),
+                                  leading:
+                                      const Icon(Icons.photo_library_rounded),
                                   title: const Text('Pick Image'),
                                   onTap: () async {
                                     _performVibration();
@@ -769,9 +646,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
                                     await _pickImage();
                                   },
                                 ),
-                                if (_profileImagePath != null && _profileImagePath!.isNotEmpty)
+                                if (_profileImagePath != null &&
+                                    _profileImagePath!.isNotEmpty)
                                   ListTile(
-                                    leading: const Icon(Icons.delete_forever_rounded),
+                                    leading: const Icon(
+                                        Icons.delete_forever_rounded),
                                     title: const Text('Remove Image'),
                                     onTap: () async {
                                       _performVibration();
@@ -788,11 +667,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        _profileImagePath != null && _profileImagePath!.isNotEmpty
+                        _profileImagePath != null &&
+                                _profileImagePath!.isNotEmpty
                             ? CircleAvatar(
                                 radius: 54,
                                 backgroundColor: colorScheme.primaryContainer,
-                                backgroundImage: FileImage(File(_profileImagePath!)),
+                                backgroundImage:
+                                    FileImage(File(_profileImagePath!)),
                               )
                             : CircleAvatar(
                                 radius: 54,
@@ -819,7 +700,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                               ],
                             ),
                             padding: const EdgeInsets.all(5),
-                            child: Icon(Icons.camera_alt_rounded, color: colorScheme.onPrimary, size: 20),
+                            child: Icon(Icons.camera_alt_rounded,
+                                color: colorScheme.onPrimary, size: 20),
                           ),
                         ),
                       ],
@@ -831,7 +713,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   controller: _usernameController,
                   decoration: InputDecoration(
                     labelText: 'Username',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -839,7 +722,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   controller: _fullnameController,
                   decoration: InputDecoration(
                     labelText: 'Full Name',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                 ),
                 const SizedBox(height: 28),
@@ -852,8 +736,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       backgroundColor: colorScheme.primary,
                       foregroundColor: colorScheme.onPrimary,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      textStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      textStyle: textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
                     ),
                     onPressed: () {
                       _performVibration();
@@ -863,14 +749,226 @@ class _UserProfilePageState extends State<UserProfilePage> {
                 ),
                 const SizedBox(height: 32),
                 Text(
-                  'Your profile info and image are stored only on your device, encrypted. Nothing is uploaded to any server.',
-                  style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant.withOpacity(0.7)),
+                  'Your profile info and image are stored only on your device, encrypted.',
+                  style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant.withOpacity(0.7)),
                   textAlign: TextAlign.center,
                 ),
+
+                // ── Account / Auth section ──────────────────────────────
+                const SizedBox(height: 28),
+                _AccountSection(),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ─── Account Section ──────────────────────────────────────────────────────────
+
+class _AccountSection extends StatelessWidget {
+  const _AccountSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = Provider.of<AuthProvider>(context);
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section label
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            'ACCOUNT',
+            style: tt.labelSmall?.copyWith(
+              color: cs.primary,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ),
+
+        if (!auth.isLoggedIn)
+          // Only show the sign-in card when social login is enabled
+          if (context.watch<AppConfigProvider>().socialLoginEnabled)
+            _SignInCard(context, auth, cs, tt)
+          else
+            const SizedBox.shrink()
+        else
+          _SignedInCard(context, auth, cs, tt),
+      ],
+    );
+  }
+
+  Widget _SignInCard(
+      BuildContext context, AuthProvider auth, ColorScheme cs, TextTheme tt) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            cs.primaryContainer.withOpacity(0.5),
+            cs.secondaryContainer.withOpacity(0.3)
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.primary.withOpacity(0.2)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () async {
+            final favProv =
+                Provider.of<FavoriteProvider>(context, listen: false);
+            final localKeys =
+                favProv.favoriteSongKeys.where((k) => k.isNotEmpty).toList();
+            final result = await Navigator.of(context).push<bool>(
+              MaterialPageRoute(
+                builder: (_) => AuthScreen(
+                  onSuccess: () {},
+                ),
+              ),
+            );
+            // After successful login, show sync dialog if there were local favourites
+            if ((result == true) && context.mounted) {
+              final updatedAuth =
+                  Provider.of<AuthProvider>(context, listen: false);
+              if (updatedAuth.isLoggedIn && localKeys.isNotEmpty) {
+                await showSyncDialog(context);
+              }
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: cs.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child:
+                      Icon(Icons.cloud_outlined, color: cs.onPrimary, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Sign in to sync favourites',
+                          style: tt.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: cs.onSurface)),
+                      const SizedBox(height: 2),
+                      Text('Access your songs on any device',
+                          style: tt.bodySmall
+                              ?.copyWith(color: cs.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios_rounded,
+                    size: 16, color: cs.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _SignedInCard(
+      BuildContext context, AuthProvider auth, ColorScheme cs, TextTheme tt) {
+    final initial = (auth.displayName?.isNotEmpty == true)
+        ? auth.displayName![0].toUpperCase()
+        : '?';
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: CircleAvatar(
+              backgroundColor: cs.primaryContainer,
+              child: Text(initial,
+                  style: TextStyle(
+                      color: cs.onPrimaryContainer,
+                      fontWeight: FontWeight.bold)),
+            ),
+            title: Text(
+              auth.displayName ?? 'User',
+              style: tt.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold, color: cs.onSurface),
+            ),
+            subtitle: Text(
+              auth.email ?? '',
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: cs.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text('Synced',
+                  style: tt.labelSmall?.copyWith(
+                      color: cs.onPrimaryContainer,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          // Manual sync button
+          ListTile(
+            leading: Icon(Icons.cloud_sync_rounded, color: cs.secondary),
+            title: Text('Sync Favourites',
+                style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+            subtitle: Text('Merge local & cloud favourites',
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+            onTap: () => showSyncDialog(context),
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          // Sign out
+          ListTile(
+            leading: Icon(Icons.logout_rounded, color: cs.error),
+            title: Text('Sign Out',
+                style: tt.bodyMedium?.copyWith(color: cs.error)),
+            onTap: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Sign out?'),
+                  content: const Text(
+                      'Your favourites will still be available locally.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text('Sign Out')),
+                  ],
+                ),
+              );
+              if (confirm == true && context.mounted) {
+                await auth.signOut();
+              }
+            },
+          ),
+        ],
       ),
     );
   }
@@ -884,21 +982,24 @@ class FavoritesScreen extends StatefulWidget {
   State<FavoritesScreen> createState() => _FavoritesScreenState();
 }
 
-class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProviderStateMixin {
+class _FavoritesScreenState extends State<FavoritesScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late FavoriteProvider _favoriteProviderInstance;
   bool _loadingFavs = true;
   List<Song> _englishFavs = [];
   List<Song> _kannadaFavs = [];
+  List<Song> _otherFavs = [];
   int _lastTabIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChangedWithVibration);
     _tabController.animation?.addStatusListener(_onTabAnimationStatus);
-    _favoriteProviderInstance = Provider.of<FavoriteProvider>(context, listen: false);
+    _favoriteProviderInstance =
+        Provider.of<FavoriteProvider>(context, listen: false);
     _favoriteProviderInstance.addListener(_onFavoritesChanged);
     _loadFavorites();
   }
@@ -933,25 +1034,39 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
   }
 
   Future<void> _loadFavorites() async {
-    setState(() { _loadingFavs = true; });
+    setState(() {
+      _loadingFavs = true;
+    });
     final favKeys = _favoriteProviderInstance.favoriteSongKeys;
     // English
     final allEnglish = await LocalDatabaseService.instance.fetchAllSongs();
     final englishFavIds = favKeys
-      .where((k) => k.startsWith('english_data|'))
-      .map((k) => k.split('|')[1])
-      .toSet();
-    final englishFavs = allEnglish.where((s) => englishFavIds.contains(s.id)).toList();
+        .where((k) => k.startsWith('english_data|'))
+        .map((k) => k.split('|')[1])
+        .toSet();
+    final englishFavs =
+        allEnglish.where((s) => englishFavIds.contains(s.id)).toList();
     // Kannada
-    final allKannada = await LocalDatabaseService.instance.fetchAllKannadaSongs();
+    final allKannada =
+        await LocalDatabaseService.instance.fetchAllKannadaSongs();
     final kannadaFavIds = favKeys
-      .where((k) => k.startsWith('kannada_data|'))
-      .map((k) => k.split('|')[1])
-      .toSet();
-    final kannadaFavs = allKannada.where((s) => kannadaFavIds.contains(s.id)).toList();
+        .where((k) => k.startsWith('kannada_data|'))
+        .map((k) => k.split('|')[1])
+        .toSet();
+    final kannadaFavs =
+        allKannada.where((s) => kannadaFavIds.contains(s.id)).toList();
+    // Other
+    final allOther = await LocalDatabaseService.instance.fetchAllOtherSongs();
+    final otherFavIds = favKeys
+        .where((k) => k.startsWith('other_data|'))
+        .map((k) => k.split('|')[1])
+        .toSet();
+    final otherFavs =
+        allOther.where((s) => otherFavIds.contains(s.id)).toList();
     setState(() {
       _englishFavs = englishFavs;
       _kannadaFavs = kannadaFavs;
+      _otherFavs = otherFavs;
       _loadingFavs = false;
     });
   }
@@ -964,7 +1079,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
   }
 
   Future<void> _removeFromFavorites(Song song, String category) async {
-    final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
+    final favoriteProvider =
+        Provider.of<FavoriteProvider>(context, listen: false);
     _performVibration();
     favoriteProvider.toggleFavorite(category, song.id);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1004,17 +1120,28 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
               ),
               labelColor: colorScheme.onPrimary,
               unselectedLabelColor: colorScheme.onSurfaceVariant,
-              labelStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              labelStyle:
+                  textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               unselectedLabelStyle: textTheme.titleMedium,
               indicatorSize: TabBarIndicatorSize.tab,
               tabs: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 18.0),
-                  child: _buildTabWithBadge('English', _englishFavs.length, colorScheme),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 12.0, horizontal: 18.0),
+                  child: _buildTabWithBadge(
+                      'English', _englishFavs.length, colorScheme),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 18.0),
-                  child: _buildTabWithBadge('Kannada', _kannadaFavs.length, colorScheme),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 12.0, horizontal: 18.0),
+                  child: _buildTabWithBadge(
+                      'Kannada', _kannadaFavs.length, colorScheme),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 12.0, horizontal: 18.0),
+                  child: _buildTabWithBadge(
+                      'Other', _otherFavs.length, colorScheme),
                 ),
               ],
             ),
@@ -1036,6 +1163,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
               children: [
                 _buildFavSection('English', _englishFavs, 'english_data'),
                 _buildFavSection('Kannada', _kannadaFavs, 'kannada_data'),
+                _buildFavSection('Other', _otherFavs, 'other_data'),
               ],
             ),
     );
@@ -1070,8 +1198,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
   void _showClearFavoritesDialog() async {
     final currentTab = _tabController.index;
     final isEnglish = currentTab == 0;
-    final lang = isEnglish ? 'English' : 'Kannada';
-    final favs = isEnglish ? _englishFavs : _kannadaFavs;
+    final isKannada = currentTab == 1;
+    final lang = isEnglish ? 'English' : (isKannada ? 'Kannada' : 'Other');
+    final favs =
+        isEnglish ? _englishFavs : (isKannada ? _kannadaFavs : _otherFavs);
     if (favs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No $lang favorites to clear.')),
@@ -1082,7 +1212,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Clear $lang Favorites?'),
-        content: Text('Are you sure you want to remove all $lang favorites? This cannot be undone.'),
+        content: Text(
+            'Are you sure you want to remove all $lang favorites? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1096,8 +1227,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
       ),
     );
     if (confirmed == true) {
-      final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
-      final categoryKey = isEnglish ? 'english_data' : 'kannada_data';
+      final favoriteProvider =
+          Provider.of<FavoriteProvider>(context, listen: false);
+      final categoryKey = isEnglish
+          ? 'english_data'
+          : (isKannada ? 'kannada_data' : 'other_data');
       for (final song in favs) {
         await favoriteProvider.toggleFavorite(categoryKey, song.id);
       }
@@ -1117,13 +1251,14 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
         final query = searchController.text.toLowerCase();
         final filteredSongs = songs.where((s) {
           return query.isEmpty ||
-            s.title.toLowerCase().contains(query) ||
-            (s.authorName?.toLowerCase().contains(query) ?? false);
+              s.title.toLowerCase().contains(query) ||
+              (s.authorName?.toLowerCase().contains(query) ?? false);
         }).toList();
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
               child: TextField(
                 controller: searchController,
                 decoration: InputDecoration(
@@ -1131,8 +1266,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
                   prefixIcon: Icon(Icons.search, color: colorScheme.primary),
                   filled: true,
                   fillColor: colorScheme.surfaceVariant.withAlpha(80),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
                   suffixIcon: searchController.text.isNotEmpty
                       ? IconButton(
                           icon: Icon(Icons.clear, color: colorScheme.primary),
@@ -1151,20 +1288,27 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
             if (songs.isEmpty)
               Expanded(
                 child: Center(
-                  child: Text('No $lang favorites yet.', style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurfaceVariant)),
+                  child: Text('No $lang favorites yet.',
+                      style: textTheme.bodyLarge
+                          ?.copyWith(color: colorScheme.onSurfaceVariant)),
                 ),
               )
             else ...[
               Padding(
-                padding: const EdgeInsets.only(top: 12.0, bottom: 6.0, left: 18),
+                padding:
+                    const EdgeInsets.only(top: 12.0, bottom: 6.0, left: 18),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text('$lang Favorites', style: textTheme.titleMedium?.copyWith(color: colorScheme.primary, fontWeight: FontWeight.bold)),
+                  child: Text('$lang Favorites',
+                      style: textTheme.titleMedium?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.bold)),
                 ),
               ),
               Expanded(
                 child: GridView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 0),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 0),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
                     crossAxisSpacing: 10.0,
@@ -1185,7 +1329,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> with SingleTickerProv
                           top: 2,
                           right: 2,
                           child: IconButton(
-                            icon: Icon(Icons.heart_broken_rounded, color: colorScheme.error, size: 22),
+                            icon: Icon(Icons.heart_broken_rounded,
+                                color: colorScheme.error, size: 22),
                             tooltip: 'Remove from Favorites',
                             onPressed: () {
                               _performVibration();
@@ -1240,15 +1385,431 @@ class HeroDialogRoute<T> extends PageRoute<T> {
   Duration get transitionDuration => const Duration(milliseconds: 350);
 
   @override
-  Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) {
+  Widget buildPage(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation) {
     return builder(context);
   }
 
   @override
-  Widget buildTransitions(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
     return snappyTransition(context, animation, secondaryAnimation, child);
   }
 
   @override
   bool get maintainState => true;
+}
+
+// ─── Global Search Dialog ─────────────────────────────────────────────────────
+// A self-contained StatefulWidget so we can:
+//  • Fetch all songs ONCE in initState (no per-keystroke DB hit)
+//  • Filter completely in-memory (synchronous, instant)
+//  • Debounce filtering with a Timer so rapid typing doesn't spam rebuilds
+//  • Use plain if/else instead of AnimatedSwitcher to avoid duplicate-key crash
+
+class _GlobalSearchDialog extends StatefulWidget {
+  final void Function(Song song) onSongSelected;
+  const _GlobalSearchDialog({required this.onSongSelected});
+
+  @override
+  State<_GlobalSearchDialog> createState() => _GlobalSearchDialogState();
+}
+
+class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
+  final TextEditingController _ctrl = TextEditingController();
+  Timer? _debounce;
+
+  List<Song> _allSongs = [];
+  List<Song> _results = [];
+  String _query = '';
+  String _filterLang = 'All';
+  String _sortOrder = 'A-Z';
+  bool _loading = true; // true only while initial load is happening
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAll() async {
+    final english = await LocalDatabaseService.instance.fetchAllSongs();
+    final kannada = await LocalDatabaseService.instance.fetchAllKannadaSongs();
+    final other = await LocalDatabaseService.instance.fetchAllOtherSongs();
+    if (!mounted) return;
+    setState(() {
+      _allSongs = [...english, ...kannada, ...other];
+      _loading = false;
+    });
+    // Show all songs immediately on open
+    _applyFilter();
+  }
+
+  // Fully in-memory — no async, no DB, never races.
+  void _applyFilter() {
+    final q = _query.trim().toLowerCase();
+
+    // Known scraper artifacts — exclude regardless of DB cleanup state
+    const _badTitles = {
+      'search christian lyrics',
+      'search christian',
+      'christian lyrics',
+    };
+
+    List<Song> filtered = _allSongs.where((s) {
+      // Strip scraper artifacts
+      if (_badTitles.any((bad) => s.title.trim().toLowerCase().contains(bad)))
+        return false;
+
+      if (_filterLang == 'English') {
+        final cat = s.category.trim().toLowerCase();
+        if (cat != 'english_data' && cat != 'english') return false;
+      }
+      if (_filterLang == 'Kannada') {
+        final cat = s.category.trim().toLowerCase();
+        if (cat != 'kannada_data' && cat != 'kannada') return false;
+      }
+      if (q.isEmpty) return true;
+      return s.title.toLowerCase().contains(q) ||
+          (s.authorName?.toLowerCase().contains(q) ?? false);
+    }).toList();
+
+    if (_sortOrder == 'A-Z') {
+      filtered.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    } else if (_sortOrder == 'Z-A') {
+      filtered.sort(
+          (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+    } else if (_sortOrder == 'Recently Added') {
+      filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }
+
+    if (mounted) setState(() => _results = filtered);
+  }
+
+  void _onQueryChanged(String val) {
+    // Update the query immediately so the clear button shows/hides right away
+    if (mounted) setState(() => _query = val);
+    // Debounce the actual filter by 150ms so mid-word typing isn't sluggish
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 150), _applyFilter);
+  }
+
+  void _onFilterChanged(String? lang, String? sort) {
+    if (lang != null && mounted) setState(() => _filterLang = lang);
+    if (sort != null && mounted) setState(() => _sortOrder = sort);
+    _applyFilter();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    final langLabels = {
+      'All': 'All',
+      'English': '🇬🇧 English',
+      'Kannada': 'ಕ Kannada'
+    };
+    final sortLabels = {
+      'A-Z': 'A → Z',
+      'Z-A': 'Z → A',
+      'Recently Added': '🕐 Recent'
+    };
+
+    return Center(
+      child: Hero(
+        tag: 'global_search_hero',
+        createRectTween: (begin, end) =>
+            MaterialRectArcTween(begin: begin, end: end),
+        child: Material(
+          color: colorScheme.surfaceContainerHigh,
+          elevation: 12,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.92,
+            constraints: const BoxConstraints(maxWidth: 480),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Search bar ──────────────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _ctrl,
+                        autofocus: true,
+                        style: textTheme.bodyLarge
+                            ?.copyWith(color: colorScheme.onSurface),
+                        decoration: InputDecoration(
+                          hintText: 'Search all songs…',
+                          hintStyle: TextStyle(
+                              color: colorScheme.onSurface.withOpacity(0.45)),
+                          prefixIcon: Icon(Icons.search_rounded,
+                              color: colorScheme.primary),
+                          suffixIcon: _query.isNotEmpty
+                              ? IconButton(
+                                  icon: Icon(Icons.clear_rounded,
+                                      color: colorScheme.onSurfaceVariant),
+                                  onPressed: () {
+                                    _ctrl.clear();
+                                    _onQueryChanged('');
+                                  },
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: colorScheme.surfaceContainerHighest,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onChanged: _onQueryChanged,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: Icon(Icons.close_rounded,
+                          color: colorScheme.onSurfaceVariant),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // ── Filter chips ─────────────────────────────────────────────
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final entry in langLabels.entries)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilterChip(
+                            label: Text(entry.value,
+                                style: textTheme.labelMedium?.copyWith(
+                                    color: _filterLang == entry.key
+                                        ? colorScheme.onPrimary
+                                        : colorScheme.onSurfaceVariant)),
+                            selected: _filterLang == entry.key,
+                            onSelected: (_) =>
+                                _onFilterChanged(entry.key, null),
+                            selectedColor: colorScheme.primary,
+                            backgroundColor:
+                                colorScheme.surfaceContainerHighest,
+                            showCheckmark: false,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      Container(
+                          width: 1,
+                          height: 22,
+                          color: colorScheme.outline.withOpacity(0.3)),
+                      const SizedBox(width: 8),
+                      for (final entry in sortLabels.entries)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilterChip(
+                            label: Text(entry.value,
+                                style: textTheme.labelMedium?.copyWith(
+                                    color: _sortOrder == entry.key
+                                        ? colorScheme.onSecondary
+                                        : colorScheme.onSurfaceVariant)),
+                            selected: _sortOrder == entry.key,
+                            onSelected: (_) =>
+                                _onFilterChanged(null, entry.key),
+                            selectedColor: colorScheme.secondary,
+                            backgroundColor:
+                                colorScheme.surfaceContainerHighest,
+                            showCheckmark: false,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // ── Fixed-height result pane — no AnimatedSwitcher ───────────
+                SizedBox(
+                  height: 340,
+                  child: _loading
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                  color: colorScheme.primary, strokeWidth: 2.5),
+                              const SizedBox(height: 12),
+                              Text('Loading songs…',
+                                  style: textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        )
+                      : _results.isEmpty && _query.isNotEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.search_off_rounded,
+                                      size: 48,
+                                      color:
+                                          colorScheme.error.withOpacity(0.45)),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'No songs match "$_query"',
+                                    textAlign: TextAlign.center,
+                                    style: textTheme.bodyMedium?.copyWith(
+                                        color: colorScheme.onSurface
+                                            .withOpacity(0.55)),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_query.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        left: 4, bottom: 6),
+                                    child: Text(
+                                      '${_results.length} song${_results.length == 1 ? '' : 's'} found',
+                                      style: textTheme.labelSmall?.copyWith(
+                                          color: colorScheme.onSurface
+                                              .withOpacity(0.5)),
+                                    ),
+                                  ),
+                                Expanded(
+                                  child: ListView.builder(
+                                    itemCount: _results.length,
+                                    padding: EdgeInsets.zero,
+                                    itemBuilder: (context, idx) {
+                                      final song = _results[idx];
+                                      final isKannada = song.category
+                                          .toLowerCase()
+                                          .contains('kannada');
+                                      return Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          onTap: () =>
+                                              widget.onSongSelected(song),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 10),
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 36,
+                                                  height: 36,
+                                                  decoration: BoxDecoration(
+                                                    color: isKannada
+                                                        ? colorScheme
+                                                            .tertiaryContainer
+                                                        : colorScheme
+                                                            .primaryContainer,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            10),
+                                                  ),
+                                                  alignment: Alignment.center,
+                                                  child: Text(
+                                                    song.title.isNotEmpty
+                                                        ? song.title[0]
+                                                            .toUpperCase()
+                                                        : '♪',
+                                                    style: textTheme.titleMedium
+                                                        ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: isKannada
+                                                          ? colorScheme
+                                                              .onTertiaryContainer
+                                                          : colorScheme
+                                                              .onPrimaryContainer,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        song.title,
+                                                        style: textTheme
+                                                            .bodyMedium
+                                                            ?.copyWith(
+                                                          color: colorScheme
+                                                              .onSurface,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      if ((song.authorName ??
+                                                              '')
+                                                          .isNotEmpty)
+                                                        Text(
+                                                          song.authorName!,
+                                                          style: textTheme
+                                                              .bodySmall
+                                                              ?.copyWith(
+                                                                  color: colorScheme
+                                                                      .onSurfaceVariant),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                Icon(
+                                                    Icons
+                                                        .arrow_forward_ios_rounded,
+                                                    size: 14,
+                                                    color: colorScheme.onSurface
+                                                        .withOpacity(0.3)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

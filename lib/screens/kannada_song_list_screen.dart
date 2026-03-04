@@ -1,3 +1,4 @@
+import 'package:worshipcompanion/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
@@ -11,7 +12,11 @@ class KannadaSongListScreen extends StatefulWidget {
   final String heroTag;
   final String cardImage;
   final VoidCallback? onFavoriteToggled;
-  const KannadaSongListScreen({super.key, required this.heroTag, required this.cardImage, this.onFavoriteToggled});
+  const KannadaSongListScreen(
+      {super.key,
+      required this.heroTag,
+      required this.cardImage,
+      this.onFavoriteToggled});
 
   @override
   State<KannadaSongListScreen> createState() => _KannadaSongListScreenState();
@@ -24,27 +29,72 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
   String? _error;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  
+
   // Ensure search controller is properly initialized
   void _initializeSearchController() {
     _searchController.clear();
     _searchQuery = '';
   }
+
   String? _selectedLetter;
   double _fontSize = 16;
+  bool _showEnglishTitle = true;
   List<String> _availableAlphabet = [];
 
   // Main Kannada vowels and consonants for filtering (can be expanded)
   static const List<String> _kannadaAlphabet = [
-    'ಅ', 'ಆ', 'ಇ', 'ಈ', 'ಉ', 'ಊ', 'ಋ', 'ಎ', 'ಏ', 'ಐ', 'ಒ', 'ಓ', 'ಔ',
-    'ಕ', 'ಖ', 'ಗ', 'ಘ', 'ಚ', 'ಛ', 'ಜ', 'ಝ', 'ಟ', 'ಠ', 'ಡ', 'ಢ', 'ತ', 'ಥ', 'ದ', 'ಧ', 'ನ',
-    'ಪ', 'ಫ', 'ಬ', 'ಭ', 'ಮ', 'ಯ', 'ರ', 'ಲ', 'ವ', 'ಶ', 'ಷ', 'ಸ', 'ಹ', 'ಳ', 'ಕ್ಷ', 'ಜ್ಞ'
+    'ಅ',
+    'ಆ',
+    'ಇ',
+    'ಈ',
+    'ಉ',
+    'ಊ',
+    'ಋ',
+    'ಎ',
+    'ಏ',
+    'ಐ',
+    'ಒ',
+    'ಓ',
+    'ಔ',
+    'ಕ',
+    'ಖ',
+    'ಗ',
+    'ಘ',
+    'ಚ',
+    'ಛ',
+    'ಜ',
+    'ಝ',
+    'ಟ',
+    'ಠ',
+    'ಡ',
+    'ಢ',
+    'ತ',
+    'ಥ',
+    'ದ',
+    'ಧ',
+    'ನ',
+    'ಪ',
+    'ಫ',
+    'ಬ',
+    'ಭ',
+    'ಮ',
+    'ಯ',
+    'ರ',
+    'ಲ',
+    'ವ',
+    'ಶ',
+    'ಷ',
+    'ಸ',
+    'ಹ',
+    'ಳ',
+    'ಕ್ಷ',
+    'ಜ್ಞ'
   ];
 
   // Generate available alphabet based on actual songs
   void _generateAvailableAlphabet() {
     final Set<String> availableLetters = <String>{};
-    
+
     for (final song in _songs) {
       if (song.title.isNotEmpty) {
         final firstChar = song.title[0];
@@ -53,14 +103,15 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
         }
       }
     }
-    
+
     // Sort the available letters according to the original alphabet order
     _availableAlphabet = _kannadaAlphabet
         .where((letter) => availableLetters.contains(letter))
         .toList();
-    
+
     // Clear selected letter if it's no longer available
-    if (_selectedLetter != null && !_availableAlphabet.contains(_selectedLetter)) {
+    if (_selectedLetter != null &&
+        !_availableAlphabet.contains(_selectedLetter)) {
       _selectedLetter = null;
     }
   }
@@ -71,7 +122,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
     _initializeSearchController();
     _searchController.addListener(_onSearchChanged);
     _initAndFetch();
-    
+
     // Add a post-frame callback to ensure search is cleared
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -118,21 +169,23 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
     List<Song> filtered = List.from(_songs);
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      final kannadaQuery = inditrans.transliterate(query, inditrans.Script.itrans, inditrans.Script.kannada);
+      final kannadaQuery = inditrans.transliterate(
+          query, inditrans.Script.itrans, inditrans.Script.kannada);
       filtered = filtered.where((song) {
         return song.title.toLowerCase().contains(query) ||
-               song.title.contains(kannadaQuery) ||
-               (song.authorName?.toLowerCase().contains(query) ?? false) ||
-               (song.authorName?.contains(kannadaQuery) ?? false) ||
-               song.lyrics.toLowerCase().contains(query) ||
-               song.lyrics.contains(kannadaQuery);
+            song.title.contains(kannadaQuery) ||
+            (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
+            (song.authorName?.toLowerCase().contains(query) ?? false) ||
+            (song.authorName?.contains(kannadaQuery) ?? false) ||
+            song.lyrics.toLowerCase().contains(query) ||
+            song.lyrics.contains(kannadaQuery);
       }).toList();
     }
     if (_selectedLetter != null && _selectedLetter!.isNotEmpty) {
       filtered = filtered.where((song) {
         return song.title.isNotEmpty && song.title[0] == _selectedLetter;
       }).toList();
-      
+
       // If no songs found for selected letter, clear the selection
       if (filtered.isEmpty) {
         _selectedLetter = null;
@@ -149,22 +202,23 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
     try {
       // First, remove any unwanted songs from the database
       await LocalDatabaseService.instance.removeUnwantedKannadaSongs();
-      
+
       final connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult != ConnectivityResult.none) {
         await LocalDatabaseService.instance.syncKannadaFromSupabase();
       }
-      final fetchedSongs = await LocalDatabaseService.instance.fetchAllKannadaSongs();
+      final fetchedSongs =
+          await LocalDatabaseService.instance.fetchAllKannadaSongs();
       if (!mounted) return;
-      
+
       // Filter out any unwanted songs that might still exist
       final filteredSongs = fetchedSongs.where((song) {
         final title = song.title.toLowerCase();
-        return !title.contains('search christian lyrics') && 
-               !title.contains('search christian') &&
-               !title.contains('christian lyrics');
+        return !title.contains('search christian lyrics') &&
+            !title.contains('search christian') &&
+            !title.contains('christian lyrics');
       }).toList();
-      
+
       setState(() {
         _songs = filteredSongs;
         _generateAvailableAlphabet(); // Generate available alphabet based on actual songs
@@ -177,7 +231,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
         _error = e.toString();
         _isLoading = false;
       });
-      print("Error in KannadaSongListScreen: $e");
+      AppLogger.d('App', 'Error in KannadaSongListScreen: $e');
     }
   }
 
@@ -187,22 +241,52 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       backgroundColor: Theme.of(context).colorScheme.background,
       body: Column(
         children: [
-          Hero(
-            tag: widget.heroTag,
-            child: Container(
-              height: 220,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: AssetImage('assets/cards/${widget.cardImage}'),
-                  fit: BoxFit.cover,
+          // Hero image + themed back button overlay
+          Stack(
+            children: [
+              Hero(
+                tag: widget.heroTag,
+                child: Container(
+                  height: 220,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage('assets/cards/${widget.cardImage}'),
+                      fit: BoxFit.cover,
+                    ),
+                    borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(32)),
+                  ),
                 ),
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
               ),
-            ),
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 12,
+                child: Material(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: const CircleBorder(),
+                  elevation: 4,
+                  shadowColor:
+                      Theme.of(context).colorScheme.shadow.withOpacity(0.4),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
             child: Row(
               children: [
                 Expanded(
@@ -210,7 +294,8 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                     controller: _searchController,
                     onTap: () {
                       // Clear any unwanted cached text when user taps the search field
-                      if (_searchController.text.contains('christian') || _searchController.text.contains('lyrics')) {
+                      if (_searchController.text.contains('christian') ||
+                          _searchController.text.contains('lyrics')) {
                         _searchController.clear();
                       }
                     },
@@ -227,9 +312,13 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                               },
                             )
                           : null,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0)),
                       filled: true,
-                      fillColor: Theme.of(context).colorScheme.surfaceVariant.withAlpha(80),
+                      fillColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceVariant
+                          .withAlpha(80),
                     ),
                   ),
                 ),
@@ -254,7 +343,8 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 4.0),
                         child: Text(
                           _fontSize.toInt().toString(),
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                       ),
                       IconButton(
@@ -273,6 +363,40 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
               ],
             ),
           ),
+
+          // Language Switcher Chips
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildTitleLanguageChip(
+                  context: context,
+                  label: 'English',
+                  isSelected: _showEnglishTitle,
+                  onTap: () {
+                    if (!_showEnglishTitle) {
+                      _performVibration();
+                      setState(() => _showEnglishTitle = true);
+                    }
+                  },
+                ),
+                const SizedBox(width: 12),
+                _buildTitleLanguageChip(
+                  context: context,
+                  label: 'Kannada',
+                  isSelected: !_showEnglishTitle,
+                  onTap: () {
+                    if (_showEnglishTitle) {
+                      _performVibration();
+                      setState(() => _showEnglishTitle = false);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+
           // Kannada alphabet filter bar
           SizedBox(
             height: 48,
@@ -281,17 +405,21 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 10.0),
               children: [
                 ..._availableAlphabet.map((letter) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                  child: ChoiceChip(
-                    label: Text(letter, style: TextStyle(fontSize: 18)),
-                    selected: _selectedLetter == letter,
-                    onSelected: (_) {
-                      _performVibration();
-                      _onLetterSelected(_selectedLetter == letter ? null : letter);
-                    },
-                    selectedColor: Theme.of(context).colorScheme.primary.withOpacity(0.18),
-                  ),
-                )),
+                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                      child: ChoiceChip(
+                        label: Text(letter, style: TextStyle(fontSize: 18)),
+                        selected: _selectedLetter == letter,
+                        onSelected: (_) {
+                          _performVibration();
+                          _onLetterSelected(
+                              _selectedLetter == letter ? null : letter);
+                        },
+                        selectedColor: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.18),
+                      ),
+                    )),
                 if (_selectedLetter != null)
                   Padding(
                     padding: const EdgeInsets.only(left: 8.0),
@@ -301,7 +429,8 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                         _performVibration();
                         _onLetterSelected(null);
                       },
-                      backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                      backgroundColor:
+                          Theme.of(context).colorScheme.surfaceVariant,
                     ),
                   ),
               ],
@@ -329,7 +458,8 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                           padding: const EdgeInsets.all(16.0),
                           child: Text(
                             _error!,
-                            style: TextStyle(color: Theme.of(context).colorScheme.error),
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.error),
                             textAlign: TextAlign.center,
                           ),
                         ),
@@ -338,17 +468,26 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                         ? Center(
                             child: Text(
                               'No Kannada songs found.',
-                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: Theme.of(context).colorScheme.onBackground
-                                  ),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onBackground),
                             ),
                           )
                         : ListView.builder(
                             itemCount: _filteredSongs.length,
-                            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                            padding:
+                                const EdgeInsets.only(top: 8.0, bottom: 8.0),
                             itemBuilder: (context, index) {
                               final song = _filteredSongs[index];
-                              return SongCardWidget(song: song, fontSize: _fontSize);
+                              return SongCardWidget(
+                                song: song,
+                                fontSize: _fontSize,
+                                showEnglishTitle: _showEnglishTitle,
+                              );
                             },
                           ),
           ),
@@ -356,4 +495,39 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       ),
     );
   }
-} 
+
+  Widget _buildTitleLanguageChip({
+    required BuildContext context,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          backgroundColor: isSelected
+              ? colorScheme.primaryContainer.withOpacity(0.6)
+              : colorScheme.surfaceVariant.withOpacity(0.3),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          minimumSize: const Size(0, 40),
+          splashFactory: InkSparkle.splashFactory,
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: isSelected
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+        ),
+      ),
+    );
+  }
+}

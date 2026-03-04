@@ -1,3 +1,4 @@
+import '../utils/app_logger.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 
@@ -16,16 +17,18 @@ class SupabaseService {
           .order('title', ascending: true);
 
       if (response == null) {
-        print('Supabase query returned null (fetching all songs from english_data)');
+        AppLogger.w('SupabaseService', 'Query returned null for $categoryKey');
         return [];
       }
-      final List<dynamic> responseData = response as List<dynamic>; 
+      final List<dynamic> responseData = response as List<dynamic>;
       final songs = responseData.map((data) {
-        return Song.fromJson(data as Map<String, dynamic>, categoryOverride: categoryKey);
+        final parsed = Song.fromJson(data as Map<String, dynamic>,
+            categoryOverride: categoryKey == 'other_data' ? null : categoryKey);
+        return parsed;
       }).toList();
       return songs;
     } catch (e) {
-      print('Error fetching all songs from english_data: $e');
+      AppLogger.d('App', 'Error fetching all songs from english_data: $e');
       throw Exception('Failed to load songs: $e');
     }
   }
@@ -36,10 +39,10 @@ class SupabaseService {
       // If no exception, treat as success
       return true;
     } on PostgrestException catch (e) {
-      print('Supabase insert error: \\${e.message}');
+      AppLogger.d('App', 'Supabase insert error: \\${e.message}');
       throw Exception('Failed to submit song: \\${e.message}');
     } catch (e) {
-      print('Error submitting song for review: \\${e.toString()}');
+      AppLogger.d('App', 'Error submitting song for review: \\${e.toString()}');
       rethrow;
     }
   }
@@ -49,4 +52,4 @@ class SupabaseService {
   // - addSong(Song song)
   // - updateSong(Song song)
   // - deleteSong(String id)
-} 
+}

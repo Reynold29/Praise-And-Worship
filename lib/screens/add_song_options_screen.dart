@@ -20,7 +20,8 @@ class AddSongOptionsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Add a New Song', style: TextStyle(color: colorScheme.onSurface)),
+        title: Text('Add a New Song',
+            style: TextStyle(color: colorScheme.onSurface)),
         backgroundColor: colorScheme.surface,
         elevation: 0,
         iconTheme: IconThemeData(color: colorScheme.onSurface),
@@ -33,7 +34,8 @@ class AddSongOptionsScreen extends StatelessWidget {
             context: context,
             icon: Icons.auto_awesome,
             title: 'AI Image or Book Scan',
-            subtitle: 'Use AI to scan and auto-extract songs from an image or book.',
+            subtitle:
+                'Use AI to scan and auto-extract songs from an image or book.',
             onTap: () {
               _performVibration();
               Navigator.push(
@@ -52,7 +54,8 @@ class AddSongOptionsScreen extends StatelessWidget {
               _performVibration();
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const AddManualSongScreen()),
+                MaterialPageRoute(
+                    builder: (context) => const AddManualSongScreen()),
               );
             },
           ),
@@ -61,12 +64,14 @@ class AddSongOptionsScreen extends StatelessWidget {
             context: context,
             icon: Icons.search_rounded,
             title: 'Search Online & Add',
-            subtitle: 'Find songs from online resources to add to your companion.',
+            subtitle:
+                'Find songs from online resources to add to your companion.',
             onTap: () {
               _performVibration();
               // TODO: Implement Search Online functionality
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Search Online & Add - Coming Soon!')),
+                const SnackBar(
+                    content: Text('Search Online & Add - Coming Soon!')),
               );
             },
           ),
@@ -121,11 +126,12 @@ class AddSongOptionsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.arrow_forward_ios_rounded, color: colorScheme.onSurfaceVariant.withOpacity(0.7)),
+              Icon(Icons.arrow_forward_ios_rounded,
+                  color: colorScheme.onSurfaceVariant.withOpacity(0.7)),
             ],
           ),
         ),
       ),
     );
   }
-} 
+}
