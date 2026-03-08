@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../widgets/auth_provider.dart';
 import '../widgets/app_config_provider.dart';
 
@@ -22,10 +23,27 @@ class _AuthScreenState extends State<AuthScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+
+    // Register the navigation callback so any login method (email, Apple,
+    // Google OAuth redirect) triggers a pop after _onAuthStateChange fires.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      auth.onLoginSuccess = () {
+        if (mounted) {
+          widget.onSuccess?.call();
+          Navigator.of(context).pop(true);
+        }
+      };
+    });
   }
 
   @override
   void dispose() {
+    // Clear the callback to avoid referencing a dead context.
+    try {
+      context.read<AuthProvider>().onLoginSuccess = null;
+    } catch (_) {}
     _tabController.dispose();
     super.dispose();
   }
@@ -179,7 +197,9 @@ class _AuthFormState extends State<_AuthForm> {
       return;
     }
 
-    if (auth.error == null && auth.isLoggedIn) {
+    // onLoginSuccess callback handles navigation if the stream fired;
+    // fallback check for immediate email flow.
+    if (auth.error == null && auth.isLoggedIn && mounted) {
       widget.onSuccess?.call();
       Navigator.of(context).pop(true);
     }
@@ -188,6 +208,22 @@ class _AuthFormState extends State<_AuthForm> {
   Future<void> _submitGoogle(AuthProvider auth) async {
     auth.clearError();
     await auth.signInWithGoogle();
+    // Google is an external OAuth — the browser opens and returns via URL
+    // scheme. The onLoginSuccess callback registered in AuthScreen.initState
+    // handles navigation when _onAuthStateChange fires.
+    // If the user is already signed in by the time we return here (e.g.
+    // token already cached), handle it directly too.
+    if (!mounted) return;
+    if (auth.error == null && auth.isLoggedIn) {
+      widget.onSuccess?.call();
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  Future<void> _submitApple(AuthProvider auth) async {
+    auth.clearError();
+    await auth.signInWithApple();
+    // Native Apple Sign-In is synchronous — we get the result immediately.
     if (!mounted) return;
     if (auth.error == null && auth.isLoggedIn) {
       widget.onSuccess?.call();
@@ -299,7 +335,7 @@ class _AuthFormState extends State<_AuthForm> {
                         : 'Continue with Google',
                     style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                   ),
-                  if (auth.loading) ...[
+                  if (auth.loadingGoogle) ...[
                     const SizedBox(width: 12),
                     SizedBox(
                         width: 16,
@@ -312,7 +348,58 @@ class _AuthFormState extends State<_AuthForm> {
             ),
           ),
           const SizedBox(height: 8),
-          // "Recommended" badge under Google button
+
+          // ── Apple sign-in (iOS / macOS only) ──────────────────────────
+          if (Theme.of(context).platform == TargetPlatform.iOS ||
+              Theme.of(context).platform == TargetPlatform.macOS) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 54,
+              child: ElevatedButton(
+                onPressed: auth.loading ? null : () => _submitApple(auth),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: cs.surface,
+                  foregroundColor: cs.onSurface,
+                  elevation: 2,
+                  shadowColor: cs.shadow.withOpacity(0.3),
+                  side: BorderSide(color: cs.outlineVariant, width: 1.5),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SvgPicture.asset(
+                      'assets/icons/apple_logo.svg',
+                      height: 22,
+                      width: 22,
+                      colorFilter:
+                          ColorFilter.mode(cs.onSurface, BlendMode.srcIn),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      widget.isRegister
+                          ? 'Sign up with Apple'
+                          : 'Continue with Apple',
+                      style:
+                          tt.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    if (auth.loadingApple) ...[
+                      const SizedBox(width: 12),
+                      SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: cs.primary)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+
+          // ── "Recommended" badge (below both social buttons) ────────────
+          const SizedBox(height: 10),
           Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
@@ -327,6 +414,7 @@ class _AuthFormState extends State<_AuthForm> {
               ),
             ),
           ),
+
           const SizedBox(height: 24),
 
           // ── Divider ───────────────────────────────────────────────────
@@ -480,9 +568,47 @@ class _AuthFormState extends State<_AuthForm> {
               ),
             ),
           ),
+
+          const SizedBox(height: 16),
+
+          // ── T&C footer ────────────────────────────────────
+          Center(
+            child: GestureDetector(
+              onTap: _launchTerms,
+              child: RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  style: tt.bodySmall
+                      ?.copyWith(color: cs.onSurfaceVariant, height: 1.5),
+                  children: [
+                    const TextSpan(text: 'By continuing, you agree to our '),
+                    TextSpan(
+                      text: 'Privacy Policy & Terms',
+                      style: TextStyle(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.underline,
+                        decorationColor: cs.primary,
+                      ),
+                    ),
+                    const TextSpan(text: '.'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 8),
         ],
       ),
     );
+  }
+
+  Future<void> _launchTerms() async {
+    final uri = Uri.parse(
+        'https://sites.google.com/view/worshipcompanionprivacypolicy/home');
+    if (await canLaunchUrl(uri))
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Widget _eye(bool obscure, VoidCallback toggle) => IconButton(

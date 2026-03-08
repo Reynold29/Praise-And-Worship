@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:worshipcompanion/widgets/auth_provider.dart';
 
 class AddManualSongScreen extends StatefulWidget {
   final String? initialTitle;
@@ -71,16 +73,14 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
     super.dispose();
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   void _submitForReview() async {
     if (_formKey.currentState!.validate()) {
       _performVibration();
+      final auth = Provider.of<AuthProvider>(context, listen: false);
       final songData = {
         'title': _titleController.text,
         'author_name': _authorController.text,
@@ -91,6 +91,7 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
         'bpm': int.tryParse(_bpmController.text),
         'youtube_link': _youtubeLinkController.text,
         'submitted_by': _submittedByController.text,
+        'submitted_by_user_id': auth.currentUser?.id,
         'is_reviewed': false,
         'review_notes': '',
       };
@@ -202,6 +203,9 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                 labelText: 'Lyrics',
                 icon: Icons.text_fields_rounded,
                 maxLines: 10,
+                textCapitalization: TextCapitalization.sentences,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter the lyrics';
@@ -306,10 +310,15 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
     String? Function(String?)? validator,
     TextInputType keyboardType = TextInputType.text,
     bool enabled = true,
+    TextCapitalization textCapitalization = TextCapitalization.words,
+    TextInputAction? textInputAction,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return TextFormField(
       controller: controller,
+      textCapitalization: textCapitalization,
+      textInputAction: textInputAction ??
+          (maxLines > 1 ? TextInputAction.newline : TextInputAction.next),
       decoration: InputDecoration(
         labelText: labelText,
         hintText: hintText,

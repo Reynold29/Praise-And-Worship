@@ -48,27 +48,50 @@ class FavoriteProvider with ChangeNotifier {
   /// Toggles a favourite and persists to both local storage and (if logged in)
   /// Supabase. The cloud write is fire-and-forget to keep the UI snappy.
   Future<void> toggleFavorite(String category, String id) async {
-    final key = '$category|$id';
-    if (_cache.contains(key)) {
-      _cache.remove(key);
-      AppLogger.d('FavProvider', 'Removed: $key');
-      unawaited(_persistLocal());
+    final normalizedCategory = category.replaceAll('_data', '');
+    final cleanKey = '$normalizedCategory|$id';
+    final legacyKey = '${normalizedCategory}_data|$id';
+
+    bool removed = false;
+
+    if (_cache.contains(cleanKey)) {
+      _cache.remove(cleanKey);
+      AppLogger.d('FavProvider', 'Removed clean key: $cleanKey');
       if (_isLoggedIn && _userId != null) {
-        unawaited(FavoritesSyncService.instance.removeFromCloud(_userId!, key));
+        unawaited(
+            FavoritesSyncService.instance.removeFromCloud(_userId!, cleanKey));
       }
-    } else {
-      _cache.add(key);
-      AppLogger.d('FavProvider', 'Added: $key');
-      unawaited(_persistLocal());
+      removed = true;
+    }
+
+    if (_cache.contains(legacyKey)) {
+      _cache.remove(legacyKey);
+      AppLogger.d('FavProvider', 'Removed legacy key: $legacyKey');
       if (_isLoggedIn && _userId != null) {
-        unawaited(FavoritesSyncService.instance.addToCloud(_userId!, key));
+        unawaited(
+            FavoritesSyncService.instance.removeFromCloud(_userId!, legacyKey));
+      }
+      removed = true;
+    }
+
+    // If it wasn't found in either format, it means the user is adding it
+    if (!removed) {
+      _cache.add(cleanKey); // Always store cleanly moving forward
+      AppLogger.d('FavProvider', 'Added: $cleanKey');
+      if (_isLoggedIn && _userId != null) {
+        unawaited(FavoritesSyncService.instance.addToCloud(_userId!, cleanKey));
       }
     }
+
+    unawaited(_persistLocal());
     notifyListeners();
   }
 
-  bool isFavorite(String category, String id) =>
-      _cache.contains('$category|$id');
+  bool isFavorite(String category, String id) {
+    final normalizedCategory = category.replaceAll('_data', '');
+    return _cache.contains('$normalizedCategory|$id') ||
+        _cache.contains('${normalizedCategory}_data|$id');
+  }
 
   /// Re-loads from shared prefs (used by connectivity listener in main.dart).
   Future<void> refreshFavorites() async {

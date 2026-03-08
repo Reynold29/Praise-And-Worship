@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/widgets/sliding_cards.dart';
 import 'package:worshipcompanion/screens/explore_Screen.dart';
 import 'package:provider/provider.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -34,20 +35,82 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String _username = '';
   String? _profileImagePath;
+  String? _googleAvatarUrl;
 
   @override
   void initState() {
     super.initState();
     _loadUsername();
     _checkForUpdate();
+    // Listen for auth state changes so username reloads after Google OAuth
+    // redirect comes back (the OAuth callback fires _onAuthStateChange
+    // which writes to SharedPreferences before onLoginSuccess pops the sheet).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AuthProvider>().addListener(_onAuthChanged);
+    });
+  }
+
+  bool _wasLoggedIn = false;
+  void _onAuthChanged() {
+    final auth = context.read<AuthProvider>();
+    if (auth.isLoggedIn && !_wasLoggedIn) {
+      _wasLoggedIn = true;
+      _loadUsername();
+    } else if (!auth.isLoggedIn && _wasLoggedIn) {
+      _wasLoggedIn = false;
+      // Immediately clear displayed profile data
+      if (mounted) {
+        setState(() {
+          _username = '';
+          _profileImagePath = null;
+          _googleAvatarUrl = null;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    context.read<AuthProvider>().removeListener(_onAuthChanged);
+    super.dispose();
   }
 
   Future<void> _loadUsername() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _username = prefs.getString('username') ?? '';
-      _profileImagePath = prefs.getString('profile_image_path');
-    });
+    final username = prefs.getString('username') ?? '';
+    final imagePath = prefs.getString('profile_image_path');
+    final googleUrl = prefs.getString('google_avatar_url');
+    if (mounted) {
+      setState(() {
+        _username = username;
+        _profileImagePath = imagePath;
+        _googleAvatarUrl = googleUrl;
+      });
+    }
+
+    // If logged in but no username set, show mandatory username modal
+    if (!mounted) return;
+    final auth = context.read<AuthProvider>();
+    if (auth.isLoggedIn && username.isEmpty) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted) _showUsernameSetupModal();
+    }
+  }
+
+  void _showUsernameSetupModal() {
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _UsernameSetupSheet(
+        onSaved: () {
+          Navigator.of(ctx).pop();
+          _loadUsername();
+        },
+      ),
+    );
   }
 
   Future<void> _checkForUpdate() async {
@@ -77,6 +140,7 @@ class _HomePageState extends State<HomePage> {
         child: HomeScreen(
           username: _username,
           profileImagePath: _profileImagePath,
+          googleAvatarUrl: _googleAvatarUrl,
           onProfileUpdated: _loadUsername,
         ),
       ),
@@ -87,15 +151,72 @@ class _HomePageState extends State<HomePage> {
 class HomeScreen extends StatefulWidget {
   final String username;
   final String? profileImagePath;
+  final String? googleAvatarUrl;
   final VoidCallback onProfileUpdated;
   const HomeScreen(
       {super.key,
       required this.username,
       this.profileImagePath,
+      this.googleAvatarUrl,
       required this.onProfileUpdated});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
+}
+
+/// Shared avatar builder: local file > Google URL > default icon.
+/// Adds a coloured ring border and ensures the image is clipped to the circle.
+Widget _buildAvatar({
+  required String? localPath,
+  required String? googleUrl,
+  required double radius,
+  required double iconSize,
+  required ColorScheme colorScheme,
+}) {
+  Widget avatar;
+  if (localPath != null && localPath.isNotEmpty) {
+    avatar = CircleAvatar(
+      radius: radius,
+      backgroundColor: colorScheme.primaryContainer,
+      backgroundImage: FileImage(File(localPath)),
+    );
+  } else if (googleUrl != null && googleUrl.isNotEmpty) {
+    avatar = CircleAvatar(
+      radius: radius,
+      backgroundColor: colorScheme.primaryContainer,
+      backgroundImage: NetworkImage(googleUrl),
+    );
+  } else {
+    avatar = CircleAvatar(
+      radius: radius,
+      backgroundColor: colorScheme.primaryContainer,
+      child: Icon(
+        Icons.account_circle_rounded,
+        color: colorScheme.onPrimaryContainer,
+        size: iconSize * 0.7, // slightly smaller so it doesn't clip
+      ),
+    );
+  }
+
+  // Wrap with a circular border ring
+  return Container(
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      border: Border.all(
+        color: colorScheme.primary.withOpacity(0.5),
+        width: 2,
+      ),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(2),
+      child: ClipOval(
+          child: SizedBox(
+        width: radius * 2,
+        height: radius * 2,
+        child: avatar,
+      )),
+    ),
+  );
 }
 
 class _HomeScreenState extends State<HomeScreen> {
@@ -149,34 +270,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (final key in favKeys) {
       final parts = key.split('|');
-      if (parts.length != 2) continue;
+      final categoryPart = parts[0].toLowerCase();
       final id = parts[1];
 
       Song? foundSong;
       String actualDbCategory = '';
 
-      foundSong = _firstWhereOrNull(allEnglish, (s) => s.id == id);
-      if (foundSong != null) {
-        actualDbCategory = foundSong.category;
-      } else {
+      if (categoryPart == 'english' || categoryPart == 'english_data') {
+        foundSong = _firstWhereOrNull(allEnglish, (s) => s.id == id);
+      } else if (categoryPart == 'kannada' || categoryPart == 'kannada_data') {
         foundSong = _firstWhereOrNull(allKannada, (s) => s.id == id);
-        if (foundSong != null) {
-          actualDbCategory = foundSong.category;
-        } else {
-          foundSong = _firstWhereOrNull(allOther, (s) => s.id == id);
-          if (foundSong != null) {
-            actualDbCategory = foundSong.category;
-          }
-        }
+      } else {
+        foundSong = _firstWhereOrNull(allOther, (s) => s.id == id);
       }
 
       if (foundSong != null) {
+        actualDbCategory = foundSong.category;
         final displayLang = mapCategoryToDisplayLang(actualDbCategory);
         favs[displayLang]!.add(foundSong);
       } else {
-        // Song was deleted from DB — quietly remove from favourites
-        AppLogger.d('HomeScreen', 'Stale favourite removed: $id');
-        _favoriteProviderInstance.toggleFavorite('', id);
+        // SAFETY GUARD: Only scrub stale favorites if we are SURE our local DB is fully populated.
+        // If allEnglish/allKannada are completely empty, the user might just be offline or blocked by RLS,
+        // so we preserve the favorite key instead of silently wiping it permanently.
+        final localDbIsEmpty =
+            allEnglish.isEmpty && allKannada.isEmpty && allOther.isEmpty;
+        if (!localDbIsEmpty) {
+          AppLogger.d('HomeScreen', 'Stale favourite removed: $key');
+          _favoriteProviderInstance.toggleFavorite(parts[0], id);
+        } else {
+          AppLogger.w('HomeScreen',
+              'Could not find favorite $key, but local DB is empty. Preserving key.');
+        }
       }
     }
 
@@ -195,11 +319,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
-  void _performVibration({int duration = 18}) async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: duration, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   @override
@@ -226,23 +347,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                   child: Hero(
                     tag: 'user_profile_avatar',
-                    child: widget.profileImagePath != null &&
-                            widget.profileImagePath!.isNotEmpty
-                        ? CircleAvatar(
-                            radius: 28.0,
-                            backgroundColor: colorScheme.primaryContainer,
-                            backgroundImage:
-                                FileImage(File(widget.profileImagePath!)),
-                          )
-                        : CircleAvatar(
-                            radius: 28.0,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: Icon(
-                              Icons.account_circle_rounded,
-                              color: colorScheme.onPrimaryContainer,
-                              size: 34,
-                            ),
-                          ),
+                    child: _buildAvatar(
+                      localPath: widget.profileImagePath,
+                      googleUrl: widget.googleAvatarUrl,
+                      radius: 28.0,
+                      iconSize: 34,
+                      colorScheme: colorScheme,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 18.0),
@@ -497,6 +608,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   String _username = '';
   String _fullname = '';
   String? _profileImagePath;
+  String? _googleAvatarUrl;
   final _usernameController = TextEditingController();
   final _fullnameController = TextEditingController();
 
@@ -512,6 +624,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       _username = prefs.getString('username') ?? '';
       _fullname = prefs.getString('fullname') ?? '';
       _profileImagePath = prefs.getString('profile_image_path');
+      _googleAvatarUrl = prefs.getString('google_avatar_url');
       _usernameController.text = _username;
       _fullnameController.text = _fullname;
     });
@@ -524,16 +637,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
     super.dispose();
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   Future<void> _pickImage() async {
     final status = await Permission.photos.request();
-    if (!status.isGranted) return;
+    if (!status.isGranted && !status.isLimited) return;
     final picker = ImagePicker();
     final picked =
         await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
@@ -589,14 +699,42 @@ class _UserProfilePageState extends State<UserProfilePage> {
   void _saveProfile() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _username = _usernameController.text;
-      _fullname = _fullnameController.text;
+      _username = _usernameController.text.trim();
+      _fullname = _fullnameController.text.trim();
     });
+    // 1. Persist locally
     await prefs.setString('username', _username);
     await prefs.setString('fullname', _fullname);
     if (_profileImagePath != null) {
       await prefs.setString('profile_image_path', _profileImagePath!);
     }
+
+    // 2. Sync to Supabase (if logged in)
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId != null) {
+        // Update auth metadata — shows as "Display name" in Supabase Auth dashboard
+        await client.auth.updateUser(
+          UserAttributes(
+            data: {
+              'full_name': _fullname,
+              'username': _username,
+            },
+          ),
+        );
+        // Update user_profiles table
+        await client.from('user_profiles').upsert({
+          'id': userId,
+          'username': _username,
+          'full_name': _fullname,
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'id');
+      }
+    } catch (_) {
+      // Offline or not logged in — local save already done, skip silently.
+    }
+
     if (context.mounted) {
       Navigator.of(context).pop();
     }
@@ -625,40 +763,98 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   child: GestureDetector(
                     onTap: () async {
                       _performVibration();
-                      showModalBottomSheet(
+                      final hasImage = _profileImagePath != null &&
+                          _profileImagePath!.isNotEmpty;
+                      await showDialog(
                         context: context,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.vertical(top: Radius.circular(18)),
-                        ),
-                        builder: (context) {
-                          return SafeArea(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ListTile(
-                                  leading:
-                                      const Icon(Icons.photo_library_rounded),
-                                  title: const Text('Pick Image'),
-                                  onTap: () async {
-                                    _performVibration();
-                                    Navigator.of(context).pop();
-                                    await _pickImage();
-                                  },
-                                ),
-                                if (_profileImagePath != null &&
-                                    _profileImagePath!.isNotEmpty)
-                                  ListTile(
-                                    leading: const Icon(
-                                        Icons.delete_forever_rounded),
-                                    title: const Text('Remove Image'),
-                                    onTap: () async {
-                                      _performVibration();
-                                      Navigator.of(context).pop();
-                                      await _removeImage();
-                                    },
+                        builder: (ctx) {
+                          final cs = Theme.of(ctx).colorScheme;
+                          final tt = Theme.of(ctx).textTheme;
+                          return Dialog(
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(28)),
+                            backgroundColor: cs.surface,
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // Title
+                                  Text(
+                                    'Profile Photo',
+                                    style: tt.titleLarge?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: cs.onSurface),
                                   ),
-                              ],
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Choose an action for your photo',
+                                    style: tt.bodyMedium
+                                        ?.copyWith(color: cs.onSurfaceVariant),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 28),
+                                  // Pick Image button
+                                  FilledButton.icon(
+                                    onPressed: () async {
+                                      _performVibration();
+                                      Navigator.of(ctx).pop();
+                                      await _pickImage();
+                                    },
+                                    icon: const Icon(
+                                        Icons.photo_library_rounded,
+                                        size: 22),
+                                    label: const Text('Pick Image',
+                                        style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold)),
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(54),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(16)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  // Remove Image button
+                                  FilledButton.icon(
+                                    onPressed: hasImage
+                                        ? () async {
+                                            _performVibration();
+                                            Navigator.of(ctx).pop();
+                                            await _removeImage();
+                                          }
+                                        : null,
+                                    icon: const Icon(Icons.delete_rounded,
+                                        size: 22),
+                                    label: const Text('Remove Image',
+                                        style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold)),
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(54),
+                                      backgroundColor: cs.errorContainer,
+                                      foregroundColor: cs.onErrorContainer,
+                                      disabledBackgroundColor:
+                                          cs.surfaceContainerHighest,
+                                      disabledForegroundColor:
+                                          cs.onSurfaceVariant.withOpacity(0.4),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(16)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // Cancel
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(),
+                                    child: Text('Cancel',
+                                        style: tt.bodyMedium?.copyWith(
+                                            color: cs.onSurfaceVariant)),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -667,23 +863,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        _profileImagePath != null &&
-                                _profileImagePath!.isNotEmpty
-                            ? CircleAvatar(
-                                radius: 54,
-                                backgroundColor: colorScheme.primaryContainer,
-                                backgroundImage:
-                                    FileImage(File(_profileImagePath!)),
-                              )
-                            : CircleAvatar(
-                                radius: 54,
-                                backgroundColor: colorScheme.primaryContainer,
-                                child: Icon(
-                                  Icons.account_circle_rounded,
-                                  color: colorScheme.onPrimaryContainer,
-                                  size: 80,
-                                ),
-                              ),
+                        _buildAvatar(
+                          localPath: _profileImagePath,
+                          googleUrl: _googleAvatarUrl,
+                          radius: 54,
+                          iconSize: 80,
+                          colorScheme: colorScheme,
+                        ),
                         Positioned(
                           bottom: 6,
                           right: 8,
@@ -711,6 +897,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
                 const SizedBox(height: 24),
                 TextField(
                   controller: _usernameController,
+                  textCapitalization: TextCapitalization.words,
                   decoration: InputDecoration(
                     labelText: 'Username',
                     border: OutlineInputBorder(
@@ -720,6 +907,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
                 const SizedBox(height: 18),
                 TextField(
                   controller: _fullnameController,
+                  textCapitalization: TextCapitalization.words,
                   decoration: InputDecoration(
                     labelText: 'Full Name',
                     border: OutlineInputBorder(
@@ -767,6 +955,168 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 }
 
+// ── Mandatory Username Setup Sheet ───────────────────────────────────────────
+// Shown after first login when username is empty. Cannot be dismissed.
+
+class _UsernameSetupSheet extends StatefulWidget {
+  final VoidCallback onSaved;
+  const _UsernameSetupSheet({required this.onSaved});
+
+  @override
+  State<_UsernameSetupSheet> createState() => _UsernameSetupSheetState();
+}
+
+class _UsernameSetupSheetState extends State<_UsernameSetupSheet> {
+  final _ctrl = TextEditingController();
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _prefillFromPrefs();
+  }
+
+  Future<void> _prefillFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString('username') ?? '';
+    if (stored.isNotEmpty && mounted) {
+      setState(() => _ctrl.text = stored);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final username = _ctrl.text.trim();
+    if (username.isEmpty) {
+      setState(() => _error = 'Please enter a username to continue.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('username', username);
+
+      // Sync to Supabase
+      final client = Supabase.instance.client;
+      final uid = client.auth.currentUser?.id;
+      if (uid != null) {
+        await client.auth.updateUser(
+          UserAttributes(data: {'username': username}),
+        );
+        await client.from('user_profiles').upsert(
+          {
+            'id': uid,
+            'username': username,
+            'updated_at': DateTime.now().toIso8601String()
+          },
+          onConflict: 'id',
+        );
+      }
+    } catch (_) {
+      // Local save succeeded — Supabase sync will retry next profile save
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+
+    widget.onSaved();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+
+    return PopScope(
+      canPop: false, // truly non-dismissible
+      child: Container(
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cs.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Icon(Icons.person_rounded, size: 48, color: cs.primary),
+            const SizedBox(height: 12),
+            Text(
+              'Choose a username',
+              style: tt.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This is how others will see you.\nYou can always change it later in your profile.',
+              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              controller: _ctrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
+              decoration: InputDecoration(
+                labelText: 'Username',
+                hintText: 'e.g. John',
+                prefixIcon: const Icon(Icons.alternate_email_rounded),
+                errorText: _error,
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                filled: true,
+                fillColor: cs.surfaceContainerHighest.withOpacity(0.5),
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('Continue',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 // ─── Account Section ──────────────────────────────────────────────────────────
 
 class _AccountSection extends StatelessWidget {
@@ -968,6 +1318,83 @@ class _AccountSection extends StatelessWidget {
               }
             },
           ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          // Delete account
+          ListTile(
+            leading: Icon(Icons.delete_forever_rounded, color: cs.error),
+            title: Text('Delete Account',
+                style: tt.bodyMedium
+                    ?.copyWith(color: cs.error, fontWeight: FontWeight.w600)),
+            subtitle: Text('Permanently removes your account and all data',
+                style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+            onTap: () async {
+              // First confirm
+              final step1 = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  icon: Icon(Icons.warning_amber_rounded,
+                      color: cs.error, size: 36),
+                  title: const Text('Delete your account?'),
+                  content: const Text(
+                      'This will permanently delete your account, all your synced favourites, and any songs you submitted for review. This cannot be undone.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                          backgroundColor: cs.error,
+                          foregroundColor: cs.onError),
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Delete Account'),
+                    ),
+                  ],
+                ),
+              );
+              if (step1 != true || !context.mounted) return;
+
+              // Second confirm
+              final step2 = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Are you absolutely sure?'),
+                  content: const Text(
+                      'Your account will be permanently deleted. This action is irreversible.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                          backgroundColor: cs.error,
+                          foregroundColor: cs.onError),
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Yes, Delete Everything'),
+                    ),
+                  ],
+                ),
+              );
+              if (step2 != true || !context.mounted) return;
+
+              await auth.deleteAccount();
+              if (!context.mounted) return;
+
+              // Clear local profile data
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('username');
+              await prefs.remove('fullname');
+              await prefs.remove('profile_image_path');
+
+              if (context.mounted) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Your account has been deleted.'),
+                      duration: Duration(seconds: 4)),
+                );
+              }
+            },
+          ),
         ],
       ),
     );
@@ -1015,7 +1442,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
 
   void _onTabChangedWithVibration() {
     if (_tabController.index != _lastTabIndex) {
-      _performVibration(duration: 8);
+      _performVibration();
       _lastTabIndex = _tabController.index;
     }
   }
@@ -1023,7 +1450,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
   void _onTabAnimationStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed) {
       if (_tabController.index != _lastTabIndex) {
-        _performVibration(duration: 8);
+        _performVibration();
         _lastTabIndex = _tabController.index;
       }
     }
@@ -1041,7 +1468,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     // English
     final allEnglish = await LocalDatabaseService.instance.fetchAllSongs();
     final englishFavIds = favKeys
-        .where((k) => k.startsWith('english_data|'))
+        .where((k) => k.startsWith('english_data|') || k.startsWith('english|'))
         .map((k) => k.split('|')[1])
         .toSet();
     final englishFavs =
@@ -1050,7 +1477,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     final allKannada =
         await LocalDatabaseService.instance.fetchAllKannadaSongs();
     final kannadaFavIds = favKeys
-        .where((k) => k.startsWith('kannada_data|'))
+        .where((k) => k.startsWith('kannada_data|') || k.startsWith('kannada|'))
         .map((k) => k.split('|')[1])
         .toSet();
     final kannadaFavs =
@@ -1058,7 +1485,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     // Other
     final allOther = await LocalDatabaseService.instance.fetchAllOtherSongs();
     final otherFavIds = favKeys
-        .where((k) => k.startsWith('other_data|'))
+        .where((k) => k.startsWith('other_data|') || k.startsWith('other|'))
         .map((k) => k.split('|')[1])
         .toSet();
     final otherFavs =
@@ -1071,11 +1498,8 @@ class _FavoritesScreenState extends State<FavoritesScreen>
     });
   }
 
-  void _performVibration({int duration = 18}) async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: duration, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   Future<void> _removeFromFavorites(Song song, String category) async {
@@ -1261,6 +1685,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                   const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
               child: TextField(
                 controller: searchController,
+                textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: 'Search $lang favorites...',
                   prefixIcon: Icon(Icons.search, color: colorScheme.primary),
@@ -1334,7 +1759,7 @@ class _FavoritesScreenState extends State<FavoritesScreen>
                             tooltip: 'Remove from Favorites',
                             onPressed: () {
                               _performVibration();
-                              _removeFromFavorites(song, categoryKey);
+                              _removeFromFavorites(song, song.category);
                             },
                           ),
                         ),

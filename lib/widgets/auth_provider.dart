@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import 'favorite_provider.dart';
+
+/// Which action is currently in progress (for per-button loading indicators).
+enum AuthLoadingSource { none, google, apple, email, delete }
 
 /// Listens to Supabase auth state events and propagates them to [FavoriteProvider].
 /// Also exposes logged-in user info to the widget tree.
@@ -9,8 +13,11 @@ class AuthProvider with ChangeNotifier {
   final FavoriteProvider _favoriteProvider;
 
   User? _user;
-  bool _loading = false;
+  AuthLoadingSource _loadingSource = AuthLoadingSource.none;
   String? _error;
+
+  /// Optional callback invoked after a successful sign-in/up.
+  VoidCallback? onLoginSuccess;
 
   AuthProvider(this._favoriteProvider) {
     // Populate from cached session (handles cold-start when user was already
@@ -30,55 +37,102 @@ class AuthProvider with ChangeNotifier {
       _user?.userMetadata?['full_name'] as String? ??
       _user?.userMetadata?['name'] as String? ??
       _user?.email?.split('@').first;
-  bool get loading => _loading;
+
+  /// True only if any auth action is in progress.
+  bool get loading => _loadingSource != AuthLoadingSource.none;
+
+  /// True only while Google sign-in is in progress.
+  bool get loadingGoogle => _loadingSource == AuthLoadingSource.google;
+
+  /// True only while Apple sign-in is in progress.
+  bool get loadingApple => _loadingSource == AuthLoadingSource.apple;
+
+  /// True only while email sign-in/up is in progress.
+  bool get loadingEmail => _loadingSource == AuthLoadingSource.email;
+
+  /// True only while account deletion is in progress.
+  bool get loadingDelete => _loadingSource == AuthLoadingSource.delete;
+
   String? get error => _error;
 
   // ── Auth actions ──────────────────────────────────────────────────────────
 
   Future<void> signInWithEmail(String email, String password) async {
-    _setLoading(true);
+    _setLoading(AuthLoadingSource.email);
     try {
       await AuthService.instance.signInWithEmail(email, password);
-      // _onAuthStateChange will pick up the new user event from the stream
     } catch (e) {
       _setError(e.toString());
     } finally {
-      _setLoading(false);
+      _setLoading(AuthLoadingSource.none);
     }
   }
 
   Future<void> signUpWithEmail(String email, String password) async {
-    _setLoading(true);
+    _setLoading(AuthLoadingSource.email);
     try {
       await AuthService.instance.signUpWithEmail(email, password);
     } catch (e) {
       _setError(e.toString());
     } finally {
-      _setLoading(false);
+      _setLoading(AuthLoadingSource.none);
     }
   }
 
   Future<void> signInWithGoogle() async {
-    _setLoading(true);
+    _setLoading(AuthLoadingSource.google);
     try {
       await AuthService.instance.signInWithGoogle();
-      // Auth state change fires when the OAuth redirect completes
     } catch (e) {
       _setError(e.toString());
     } finally {
-      _setLoading(false);
+      _setLoading(AuthLoadingSource.none);
+    }
+  }
+
+  Future<void> signInWithApple() async {
+    _setLoading(AuthLoadingSource.apple);
+    try {
+      await AuthService.instance.signInWithApple();
+    } catch (e) {
+      _setError(e.toString());
+    } finally {
+      _setLoading(AuthLoadingSource.none);
     }
   }
 
   Future<void> signOut() async {
-    _setLoading(true);
+    _setLoading(AuthLoadingSource.delete);
     try {
       await AuthService.instance.signOut();
       await _favoriteProvider.switchToLocal();
     } catch (e) {
       _setError(e.toString());
     } finally {
-      _setLoading(false);
+      _setLoading(AuthLoadingSource.none);
+    }
+  }
+
+  Future<void> deleteAccount() async {
+    _setLoading(AuthLoadingSource.delete);
+    try {
+      try {
+        await AuthService.instance.deleteAccount();
+      } catch (rpcError) {
+        // RPC not created yet — still sign out locally.
+      }
+      await AuthService.instance.signOut();
+      await _favoriteProvider.switchToLocal();
+      // Clear all local profile data so the avatar / name vanish immediately
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('username');
+      await prefs.remove('fullname');
+      await prefs.remove('profile_image_path');
+      await prefs.remove('google_avatar_url');
+    } catch (e) {
+      _setError(e.toString());
+    } finally {
+      _setLoading(AuthLoadingSource.none);
     }
   }
 
@@ -96,9 +150,14 @@ class AuthProvider with ChangeNotifier {
     AuthService.instance.invalidateCache();
 
     if (newUser != null && previousUser == null) {
-      // Fresh sign-in: load cloud favourites into the provider.
-      // The sync dialog (shown from UI) will handle the local→cloud merge.
+      // Fresh sign-in — switch to cloud favourites
       await _favoriteProvider.switchToCloud(newUser.id);
+
+      // Auto-populate profile from Google / Apple metadata on first login
+      await _syncProfileFromProvider(newUser);
+
+      // Fire the success callback so the auth screen can navigate away
+      onLoginSuccess?.call();
     } else if (newUser == null && previousUser != null) {
       // Sign-out
       await _favoriteProvider.switchToLocal();
@@ -107,8 +166,49 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void _setLoading(bool v) {
-    _loading = v;
+  /// Reads provider metadata (Google: full_name, avatar_url) and saves to
+  /// SharedPreferences + Supabase if the local username is not yet set.
+  Future<void> _syncProfileFromProvider(User user) async {
+    try {
+      final meta = user.userMetadata ?? {};
+      final fullName =
+          (meta['full_name'] as String? ?? meta['name'] as String? ?? '')
+              .trim();
+      final firstName = fullName.isNotEmpty
+          ? fullName.split(' ').first.trim()
+          : (user.email?.split('@').first ?? '');
+      final avatarUrl =
+          (meta['avatar_url'] as String? ?? meta['picture'] as String? ?? '')
+              .trim();
+
+      final prefs = await SharedPreferences.getInstance();
+      final storedUsername = prefs.getString('username') ?? '';
+
+      // Only auto-fill if the user hasn't already set a username themselves
+      if (storedUsername.isEmpty && firstName.isNotEmpty) {
+        await prefs.setString('username', firstName);
+      }
+      if ((prefs.getString('fullname') ?? '').isEmpty && fullName.isNotEmpty) {
+        await prefs.setString('fullname', fullName);
+      }
+      if (avatarUrl.isNotEmpty) {
+        await prefs.setString('google_avatar_url', avatarUrl);
+      }
+
+      // Upsert to Supabase user_profiles
+      if (storedUsername.isEmpty && firstName.isNotEmpty) {
+        await AuthService.instance.upsertProfile(
+          username: firstName,
+          fullName: fullName,
+        );
+      }
+    } catch (_) {
+      // Non-critical — skip silently
+    }
+  }
+
+  void _setLoading(AuthLoadingSource source) {
+    _loadingSource = source;
     notifyListeners();
   }
 

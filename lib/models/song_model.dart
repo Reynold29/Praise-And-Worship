@@ -46,9 +46,9 @@ class Song {
       updatedAt: updatedAtStr != null
           ? DateTime.tryParse(updatedAtStr) ?? DateTime.now()
           : DateTime.now(),
-      title: json['title'] as String,
+      title: (json['title'] as String?) ?? 'Unknown Title',
       englishTitle: json['english_title'] as String?,
-      lyrics: json['lyrics'] as String,
+      lyrics: (json['lyrics'] as String?) ?? '',
       transLyrics: json['trans_lyrics'] as String?,
       chords: json['chords'] as String?,
       category:
@@ -66,7 +66,7 @@ class Song {
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
         'title': title,
-        'english_title': englishTitle,
+        'english_title': englishTitle ?? '',
         'lyrics': lyrics,
         'trans_lyrics': transLyrics,
         'chords': chords,

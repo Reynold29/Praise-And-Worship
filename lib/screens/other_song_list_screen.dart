@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/screens/language_song_list_screen.dart';
-import 'package:worshipcompanion/services/local_database_service.dart';
-import 'package:vibration/vibration.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:worshipcompanion/services/supabase_service.dart';
+import 'package:flutter/services.dart';
 import 'package:worshipcompanion/utils/app_logger.dart';
 
 class OtherSongListScreen extends StatefulWidget {
@@ -65,11 +64,8 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
     });
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   void _filterSongs() {
@@ -99,22 +95,12 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
       _error = null;
     });
     try {
-      final connectivity = await Connectivity().checkConnectivity();
-      final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
-      if (!isOffline) {
-        AppLogger.d('OtherSongList', 'Online — syncing Other from Supabase...');
-        await LocalDatabaseService.instance.syncOtherFromSupabase();
-      } else {
-        AppLogger.d('OtherSongListScreen', 'Offline. Skipping sync.');
-      }
-
-      final fetchedSongs =
-          await LocalDatabaseService.instance.fetchAllOtherSongs();
-
+      // Direct: fetch "other" songs (multi-language) from Supabase.
+      final songs =
+          await SupabaseService.instance.getSongsByCategory('other_data');
       if (!mounted) return;
 
-      // Extract unique categories from the fetched songs
-      final uniqueCategories = fetchedSongs
+      final uniqueCategories = songs
           .map((s) => s.category)
           .where((c) => c != 'unknown_data' && c.isNotEmpty)
           .toSet()
@@ -122,10 +108,9 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
       uniqueCategories.sort();
 
       setState(() {
-        _songs = fetchedSongs;
+        _songs = songs;
         _availableCategories = ['All', ...uniqueCategories];
 
-        // Reset selected category to 'All' if the current selection is no longer valid
         if (!_availableCategories.contains(_selectedCategory)) {
           _selectedCategory = 'All';
         }
@@ -168,60 +153,75 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
     final languages = _availableCategories.where((c) => c != 'All').toList();
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: Column(
         children: [
-          Hero(
-            tag: widget.heroTag,
-            child: Container(
-              height: 220,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: AssetImage('assets/cards/${widget.cardImage}'),
-                  fit: BoxFit.cover,
-                ),
-                borderRadius:
-                    const BorderRadius.vertical(bottom: Radius.circular(32)),
-              ),
-              child: Stack(
-                children: [
-                  Positioned(
-                    top: 40,
-                    left: 16,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () {
-                          _performVibration();
-                          Navigator.pop(context);
-                        },
+          Stack(
+            children: [
+              Hero(
+                tag: widget.heroTag,
+                transitionOnUserGestures: true,
+                child: Container(
+                  height: 220,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage('assets/cards/${widget.cardImage}'),
+                      fit: BoxFit.cover,
+                    ),
+                    borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(32)),
+                  ),
+                  child: const Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Padding(
+                      padding: EdgeInsets.only(left: 20, bottom: 20),
+                      child: Text(
+                        'Other Languages',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          shadows: [
+                            Shadow(
+                              offset: Offset(0, 2),
+                              blurRadius: 4.0,
+                              color: Colors.black54,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                  const Positioned(
-                    bottom: 20,
-                    left: 20,
-                    child: Text(
-                      'Other Languages',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        shadows: [
-                          Shadow(
-                            offset: Offset(0, 2),
-                            blurRadius: 4.0,
-                            color: Colors.black54,
-                          ),
-                        ],
+                ),
+              ),
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 12,
+                child: Material(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: const CircleBorder(),
+                  elevation: 4,
+                  shadowColor:
+                      Theme.of(context).colorScheme.shadow.withOpacity(0.4),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () {
+                      _performVibration();
+                      Navigator.of(context).pop();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        size: 20,
                       ),
                     ),
-                  )
-                ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
           Padding(
             padding:
@@ -231,6 +231,7 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
                       hintText: 'Search songs across all languages...',
                       prefixIcon: const Icon(Icons.search),
@@ -288,6 +289,54 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
                   const SizedBox(height: 24),
                   Row(
                     children: [
+                      TextButton.icon(
+                        onPressed: () async {
+                          _performVibration();
+                          setState(() => _isLoading = true);
+                          try {
+                            final fetched = await SupabaseService.instance
+                                .getSongsByCategory('other_data');
+                            if (!mounted) return;
+                            final uniqueCategories = fetched
+                                .map((s) => s.category)
+                                .where((c) =>
+                                    c != 'unknown_data' && c.isNotEmpty)
+                                .toSet()
+                                .toList();
+                            uniqueCategories.sort();
+                            setState(() {
+                              _songs = fetched;
+                              _availableCategories = ['All', ...uniqueCategories];
+                              if (!_availableCategories
+                                  .contains(_selectedCategory)) {
+                                _selectedCategory = 'All';
+                              }
+                              _filterSongs();
+                              _isLoading = false;
+                            });
+                          } catch (e) {
+                            if (!mounted) return;
+                            setState(() {
+                              _error = 'Sync failed: $e';
+                              _isLoading = false;
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.sync_rounded, size: 18),
+                        label: const Text('Sync',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        style: TextButton.styleFrom(
+                          foregroundColor:
+                              Theme.of(context).colorScheme.primary,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withAlpha(90),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
                       Expanded(
                           child: Divider(
                               color: Theme.of(context)

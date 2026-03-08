@@ -1,10 +1,9 @@
 import 'package:worshipcompanion/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:worshipcompanion/models/song_model.dart';
-import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:worshipcompanion/services/local_database_service.dart';
+import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:inditrans/inditrans.dart' as inditrans;
 import 'package:vibration/vibration.dart';
 
@@ -200,39 +199,34 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       _error = null;
     });
     try {
-      // First, remove any unwanted songs from the database
-      await LocalDatabaseService.instance.removeUnwantedKannadaSongs();
-
-      final connectivityResult = await Connectivity().checkConnectivity();
-      if (connectivityResult != ConnectivityResult.none) {
-        await LocalDatabaseService.instance.syncKannadaFromSupabase();
-      }
+      // Direct: fetch Kannada songs from Supabase and show.
       final fetchedSongs =
-          await LocalDatabaseService.instance.fetchAllKannadaSongs();
-      if (!mounted) return;
-
-      // Filter out any unwanted songs that might still exist
-      final filteredSongs = fetchedSongs.where((song) {
-        final title = song.title.toLowerCase();
-        return !title.contains('search christian lyrics') &&
-            !title.contains('search christian') &&
-            !title.contains('christian lyrics');
-      }).toList();
-
-      setState(() {
-        _songs = filteredSongs;
-        _generateAvailableAlphabet(); // Generate available alphabet based on actual songs
-        _filterSongs();
-        _isLoading = false;
-      });
+          await SupabaseService.instance.getSongsByCategory('kannada_data');
+      if (mounted) {
+        setState(() {
+          _songs = _filterInvalidSongs(fetchedSongs);
+          _generateAvailableAlphabet();
+          _filterSongs();
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
       });
-      AppLogger.d('App', 'Error in KannadaSongListScreen: $e');
+      AppLogger.e('KannadaList', 'Error loading Kannada songs', e);
     }
+  }
+
+  List<Song> _filterInvalidSongs(List<Song> songs) {
+    return songs.where((song) {
+      final title = song.title.toLowerCase();
+      return !title.contains('search christian lyrics') &&
+          !title.contains('search christian') &&
+          !title.contains('christian lyrics');
+    }).toList();
   }
 
   @override
@@ -246,6 +240,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
             children: [
               Hero(
                 tag: widget.heroTag,
+                transitionOnUserGestures: true,
                 child: Container(
                   height: 220,
                   width: double.infinity,
@@ -292,6 +287,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
+                    textCapitalization: TextCapitalization.sentences,
                     onTap: () {
                       // Clear any unwanted cached text when user taps the search field
                       if (_searchController.text.contains('christian') ||
@@ -368,8 +364,52 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Sync Songs (same row as chips)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16.0),
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      _performVibration();
+                      setState(() => _isLoading = true);
+                      try {
+                        await LocalDatabaseService.instance
+                            .syncKannadaFromSupabase(
+                                forceFullResync: true, throwOnError: true);
+                        await LocalDatabaseService.instance
+                            .removeUnwantedKannadaSongs();
+                        final fetched = await LocalDatabaseService.instance
+                            .fetchAllKannadaSongs();
+                        if (!mounted) return;
+                        setState(() {
+                          _songs = _filterInvalidSongs(fetched);
+                          _generateAvailableAlphabet();
+                          _filterSongs();
+                          _isLoading = false;
+                        });
+                      } catch (e) {
+                        if (!mounted) return;
+                        setState(() {
+                          _error = 'Sync failed: $e';
+                          _isLoading = false;
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.sync_rounded, size: 18),
+                    label: const Text('Sync',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.primary,
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withAlpha(90),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                ),
+                const Spacer(),
                 _buildTitleLanguageChip(
                   context: context,
                   label: 'English',
@@ -393,6 +433,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                     }
                   },
                 ),
+                const SizedBox(width: 16),
               ],
             ),
           ),

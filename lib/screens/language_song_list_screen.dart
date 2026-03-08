@@ -141,6 +141,7 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
                       hintText: 'Search songs...',
                       prefixIcon: const Icon(Icons.search),

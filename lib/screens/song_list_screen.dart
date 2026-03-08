@@ -1,7 +1,7 @@
 import 'package:worshipcompanion/utils/app_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:worshipcompanion/models/song_model.dart';
-import 'package:worshipcompanion/services/local_database_service.dart';
+import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
 import 'package:vibration/vibration.dart';
 
@@ -149,8 +149,11 @@ class _SongListScreenState extends State<SongListScreen> {
       _isLoading = true;
       _error = null;
     });
+
     try {
-      final fetchedSongs = await LocalDatabaseService.instance.fetchAllSongs();
+      // Direct: fetch English songs from Supabase and show.
+      final fetchedSongs =
+          await SupabaseService.instance.getSongsByCategory('english_data');
       if (!mounted) return;
       setState(() {
         _songs = fetchedSongs;
@@ -164,7 +167,7 @@ class _SongListScreenState extends State<SongListScreen> {
         _error = e.toString();
         _isLoading = false;
       });
-      AppLogger.d('App', 'Error in SongListScreen: $e');
+      AppLogger.e('App', 'Error in SongListScreen: $e');
     }
   }
 
@@ -181,6 +184,7 @@ class _SongListScreenState extends State<SongListScreen> {
             children: [
               Hero(
                 tag: widget.heroTag,
+                transitionOnUserGestures: true,
                 child: Container(
                   height: 220,
                   width: double.infinity,
@@ -227,6 +231,7 @@ class _SongListScreenState extends State<SongListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
                       hintText: 'Search songs…',
                       prefixIcon: Icon(Icons.search_rounded,
@@ -290,6 +295,46 @@ class _SongListScreenState extends State<SongListScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          // Sync Button Fallback
+          Padding(
+            padding:
+                const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 8.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () async {
+                  _performVibration();
+                  setState(() => _isLoading = true);
+                  try {
+                    final fetched = await SupabaseService.instance
+                        .getSongsByCategory('english_data');
+                    if (!mounted) return;
+                    setState(() {
+                      _songs = fetched;
+                      _filterSongs();
+                      _currentMax = _pageSize.clamp(0, _filteredSongs.length);
+                      _isLoading = false;
+                    });
+                  } catch (e) {
+                    if (!mounted) return;
+                    setState(() {
+                      _error = 'Sync failed: $e';
+                      _isLoading = false;
+                    });
+                  }
+                },
+                icon: const Icon(Icons.sync_rounded, size: 20),
+                label: const Text('Sync Songs',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                style: TextButton.styleFrom(
+                  foregroundColor: colorScheme.primary,
+                  backgroundColor: colorScheme.primaryContainer.withAlpha(100),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+              ),
             ),
           ),
           // Alphabet filter bar

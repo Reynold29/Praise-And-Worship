@@ -1,423 +1,186 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
 import '../utils/app_logger.dart';
-import 'package:sqflite_sqlcipher/sqflite.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:path/path.dart';
 import '../models/song_model.dart';
 import 'supabase_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalDatabaseService {
   static final LocalDatabaseService instance = LocalDatabaseService._();
 
-  // DB file names
-  static const _dbName = 'songs_encrypted.db';
-  static const _dbNameKannada = 'kannada_songs_encrypted.db';
-  static const _dbNameOther = 'other_songs_encrypted.db';
-
-  // Keys used in FlutterSecureStorage
-  static const _dbPasswordKey = 'db_encryption_key';
-  static const _dbPasswordKeyKannada = 'db_encryption_key_kannada';
-  static const _dbPasswordKeyOther = 'db_encryption_key_other';
-
-  // ─── Fixed app-level passphrase ──────────────────────────────────────────
-  // Using a deterministic passphrase means the same key is used on every
-  // install of this app version, so the DB can always be opened even after
-  // a clean install or if FlutterSecureStorage is wiped.
-  // If you ever need to rotate this key, bump the DB version and handle
-  // the migration inside onUpgrade.
-  static const _fixedPassphrase = 'wc_secure_app_2025!';
-
-  static const _storage = FlutterSecureStorage();
-
-  Database? _db;
-  Database? _dbKannada;
-  Database? _dbOther;
-
   LocalDatabaseService._();
 
-  // ─── English DB ──────────────────────────────────────────────────────────
-
-  Future<Database> get database async {
-    if (_db != null) return _db!;
-    _db = await _initDb().timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        AppLogger.e('LocalDB', 'English DB init timed out');
-        throw Exception('Database initialization timed out');
-      },
-    );
-    return _db!;
+  Future<String> _getFilePath(String fileName) async {
+    final dir = await getApplicationDocumentsDirectory();
+    return '${dir.path}/$fileName';
   }
 
-  Future<Database> _initDb() async {
-    // Always store the fixed passphrase in secure storage so future code
-    // that reads it will find a consistent value.
-    await _storage.write(key: _dbPasswordKey, value: _fixedPassphrase);
-
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
-    return _openOrRecreateDb(
-        path: path, key: _fixedPassphrase, dbType: 'english');
+  bool _isOffline(List<ConnectivityResult> results) {
+    if (results.isEmpty) return false;
+    return results.length == 1 && results.first == ConnectivityResult.none;
   }
 
-  // ─── Kannada DB ──────────────────────────────────────────────────────────
-
-  Future<Database> get kannadaDatabase async {
-    if (_dbKannada != null) return _dbKannada!;
-    _dbKannada = await _initKannadaDb().timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        AppLogger.e('LocalDB', 'Kannada DB init timed out');
-        throw Exception('Kannada database initialization timed out');
-      },
-    );
-    return _dbKannada!;
-  }
-
-  Future<Database> _initKannadaDb() async {
-    await _storage.write(key: _dbPasswordKeyKannada, value: _fixedPassphrase);
-
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbNameKannada);
-    return _openOrRecreateDb(
-        path: path, key: _fixedPassphrase, dbType: 'kannada');
-  }
-
-  // ─── Other Languages DB ──────────────────────────────────────────────────
-
-  Future<Database> get otherDatabase async {
-    if (_dbOther != null) return _dbOther!;
-    _dbOther = await _initOtherDb().timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        AppLogger.e('LocalDB', 'Other DB init timed out');
-        throw Exception('Other database initialization timed out');
-      },
-    );
-    return _dbOther!;
-  }
-
-  Future<Database> _initOtherDb() async {
-    await _storage.write(key: _dbPasswordKeyOther, value: _fixedPassphrase);
-
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbNameOther);
-    return _openOrRecreateDb(
-        path: path, key: _fixedPassphrase, dbType: 'other');
-  }
-
-  // ─── Recovery wrapper ────────────────────────────────────────────────────
-  // If opening the DB fails (wrong key from a previous random key, or corruption),
-  // we delete the file and open a fresh empty DB. Data will be re-synced from
-  // Supabase on the next sync cycle — nothing is permanently lost.
-  Future<Database> _openOrRecreateDb({
-    required String path,
-    required String key,
-    required String dbType,
-  }) async {
+  Future<List<Song>> _fetchSongsFromFile(String fileName) async {
     try {
-      return await _doOpenDb(path: path, key: key);
-    } catch (e) {
-      AppLogger.e('LocalDB', 'Failed to open DB at $path', e);
-      AppLogger.d('LocalDB', 'Deleting corrupt DB and recreating...');
-
-      // Nullify the cached handle so the next `get database` call re-inits
-      if (dbType == 'kannada') {
-        _dbKannada = null;
-      } else if (dbType == 'other') {
-        _dbOther = null;
-      } else {
-        _db = null;
-      }
-
-      // Delete the bad file
+      final path = await _getFilePath(fileName);
       final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-        AppLogger.d('LocalDB', 'Deleted old DB file: $path');
+      if (!await file.exists()) {
+        return [];
       }
+      final jsonString = await file.readAsString();
+      final List<dynamic> jsonList = jsonDecode(jsonString);
 
-      // Open a fresh empty DB
-      try {
-        return await _doOpenDb(path: path, key: key);
-      } catch (e2) {
-        AppLogger.e(
-            'LocalDB', 'CRITICAL: Could not create fresh DB at $path', e2);
-        rethrow;
+      final List<Song> validSongs = [];
+      for (int i = 0; i < jsonList.length; i++) {
+        try {
+          final map = jsonList[i] as Map<String, dynamic>;
+          validSongs.add(Song.fromJson(map));
+        } catch (e, stacktrace) {
+          AppLogger.e('LocalDB',
+              'Failed to parse song at index $i: $e\nData: ${jsonList[i]}');
+        }
       }
-    }
-  }
-
-  Future<Database> _doOpenDb({required String path, required String key}) {
-    return openDatabase(
-      path,
-      password: key,
-      version: 4,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE songs (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            english_title TEXT,
-            lyrics TEXT NOT NULL,
-            trans_lyrics TEXT,
-            chords TEXT,
-            author_name TEXT NOT NULL,
-            language TEXT NOT NULL,
-            genre TEXT,
-            key_signature TEXT,
-            bpm INTEGER,
-            youtube_link TEXT,
-            updated_at TEXT
-          )
-        ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute('ALTER TABLE songs ADD COLUMN chords TEXT;');
-        }
-        if (oldVersion < 3) {
-          await db.execute('ALTER TABLE songs ADD COLUMN trans_lyrics TEXT;');
-        }
-        if (oldVersion < 4) {
-          await db.execute('ALTER TABLE songs ADD COLUMN english_title TEXT;');
-        }
-      },
-    );
-  }
-
-  // ─── CRUD & Sync ─────────────────────────────────────────────────────────
-
-  Future<void> upsertSongs(List<Song> songs) async {
-    final db = await database;
-    final batch = db.batch();
-    for (final song in songs) {
-      batch.insert(
-        'songs',
-        _songToMap(song),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-    await batch.commit(noResult: true);
-  }
-
-  Future<List<Song>> fetchAllSongs() async {
-    try {
-      final db = await database;
-      final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
-      return maps.map((map) => _songFromMap(map)).toList();
-    } catch (e) {
-      AppLogger.e('LocalDB', 'Error fetching English songs', e);
+      return validSongs;
+    } catch (e, stacktrace) {
+      AppLogger.e(
+          'LocalDB', 'Error reading JSON file $fileName: $e\n$stacktrace');
       return [];
     }
   }
 
-  Future<void> deleteSongsNotInIdList(List<String> idsToKeep) async {
-    final db = await database;
-    if (idsToKeep.isEmpty) {
-      await db.delete('songs');
-    } else {
-      final placeholders = List.filled(idsToKeep.length, '?').join(',');
-      await db.delete('songs',
-          where: 'id NOT IN ($placeholders)', whereArgs: idsToKeep);
+  Future<void> _syncCategory(String supabaseCategory, String fileName,
+      {bool forceFullResync = false, bool throwOnError = false}) async {
+    try {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (_isOffline(connectivity)) {
+        if (forceFullResync) throw Exception('No internet connection');
+        AppLogger.d('LocalDB', 'No internet, skipping $supabaseCategory sync.');
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final lastSyncKey = 'last_sync_$supabaseCategory';
+      final lastSyncMillis = prefs.getInt(lastSyncKey) ?? 0;
+      final nowMillis = DateTime.now().millisecondsSinceEpoch;
+
+      final path = await _getFilePath(fileName);
+      final file = File(path);
+
+      // If not forced and it's been less than 24 hours, skip background sync to save bandwidth
+      // HOWEVER, if the file doesn't actually exist (e.g. user cleared DB), we must sync anyway.
+      if (!forceFullResync && (nowMillis - lastSyncMillis) < 86400000) {
+        if (await file.exists()) {
+          AppLogger.d('LocalDB',
+              'Skipping $supabaseCategory sync (synced < 24h ago and file exists).');
+          return;
+        }
+      }
+
+      List<Song> supabaseSongs =
+          await SupabaseService.instance.getSongsByCategory(supabaseCategory);
+
+      if (supabaseSongs.isEmpty && !forceFullResync) {
+        AppLogger.w('LocalDB',
+            '$supabaseCategory sync returned 0 rows; keeping local file cache.');
+        return;
+      }
+
+      final List<Map<String, dynamic>> jsonList =
+          supabaseSongs.map((s) => s.toJson()).toList();
+      final jsonString = jsonEncode(jsonList);
+
+      await file.writeAsString(jsonString);
+      await prefs.setInt(lastSyncKey, nowMillis);
+
+      AppLogger.d('LocalDB',
+          'Synced ${supabaseSongs.length} songs from $supabaseCategory to $fileName');
+    } catch (e) {
+      AppLogger.e('LocalDB', 'Sync failed for $supabaseCategory', e);
+      if (throwOnError) rethrow;
     }
+  }
+
+  Future<void> _deleteFile(String fileName) async {
+    final path = await _getFilePath(fileName);
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  // ─── English ─────────────────────────────────────────────────────────────
+
+  Future<List<Song>> fetchAllSongs() async {
+    final songs = await _fetchSongsFromFile('english_data.json');
+    if (songs.isEmpty) {
+      AppLogger.w('LocalDB',
+          'Local english_data.json was empty. Forcing instant synchronous fetch from Supabase...');
+      await syncFromSupabase(forceFullResync: true);
+      return await _fetchSongsFromFile('english_data.json');
+    }
+    return songs;
+  }
+
+  Future<void> syncFromSupabase(
+      {bool forceFullResync = false, bool throwOnError = false}) async {
+    await _syncCategory('english_data', 'english_data.json',
+        forceFullResync: forceFullResync, throwOnError: throwOnError);
   }
 
   Future<void> clearAllSongs() async {
-    final db = await database;
-    await db.delete('songs');
+    await _deleteFile('english_data.json');
   }
 
-  /// Sync English songs from Supabase to the local encrypted DB.
-  Future<void> syncFromSupabase() async {
-    try {
-      final connectivity = await Connectivity().checkConnectivity();
-      final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
-      if (isOffline) {
-        AppLogger.d('LocalDB', 'No internet, skipping English sync.');
-        return;
-      }
-
-      List<Song> supabaseSongs =
-          await SupabaseService.instance.getSongsByCategory('english_data');
-      await upsertSongs(supabaseSongs);
-      final supabaseIds = supabaseSongs.map((s) => s.id).toList();
-      await deleteSongsNotInIdList(supabaseIds);
-      AppLogger.d('LocalDB', 'Synced ${supabaseSongs.length} English songs.');
-    } catch (e) {
-      AppLogger.e('LocalDB', 'English sync failed', e);
-    }
-  }
-
-  // ─── Kannada CRUD & Sync ─────────────────────────────────────────────────
-
-  Future<void> upsertKannadaSongs(List<Song> songs) async {
-    final db = await kannadaDatabase;
-    final batch = db.batch();
-    for (final song in songs) {
-      batch.insert(
-        'songs',
-        _songToMap(song),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-    await batch.commit(noResult: true);
-  }
+  // ─── Kannada ─────────────────────────────────────────────────────────────
 
   Future<List<Song>> fetchAllKannadaSongs() async {
-    try {
-      final db = await kannadaDatabase;
-      final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
-      return maps.map((map) => _songFromMap(map)).toList();
-    } catch (e) {
-      AppLogger.e('LocalDB', 'Error fetching Kannada songs', e);
-      return [];
+    List<Song> songs = await _fetchSongsFromFile('kannada_data.json');
+    if (songs.isEmpty) {
+      AppLogger.w('LocalDB',
+          'Local kannada_data.json was empty. Forcing instant synchronous fetch from Supabase...');
+      await syncKannadaFromSupabase(forceFullResync: true);
+      songs = await _fetchSongsFromFile('kannada_data.json');
     }
+
+    return songs.where((s) {
+      final titleLower = s.title.toLowerCase();
+      if (titleLower.contains('search christian') ||
+          titleLower.contains('christian lyrics')) return false;
+      if (s.category.toLowerCase() != 'kannada' &&
+          s.category.toLowerCase() != 'kannada_data') return false;
+      return true;
+    }).toList();
+  }
+
+  Future<void> syncKannadaFromSupabase(
+      {bool forceFullResync = false, bool throwOnError = false}) async {
+    await _syncCategory('kannada_data', 'kannada_data.json',
+        forceFullResync: forceFullResync, throwOnError: throwOnError);
+  }
+
+  Future<void> removeUnwantedKannadaSongs() async {
+    // Handled purely in fetchAllKannadaSongs via filtering, saving complex file rewrites.
   }
 
   Future<void> clearAllKannadaSongs() async {
-    final db = await kannadaDatabase;
-    await db.delete('songs');
+    await _deleteFile('kannada_data.json');
   }
 
-  Future<void> syncKannadaFromSupabase() async {
-    try {
-      final connectivity = await Connectivity().checkConnectivity();
-      final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
-      if (isOffline) {
-        AppLogger.d('LocalDB', 'No internet, skipping Kannada sync.');
-        return;
-      }
-
-      List<Song> supabaseSongs =
-          await SupabaseService.instance.getSongsByCategory('kannada_data');
-      await upsertKannadaSongs(supabaseSongs);
-      final supabaseIds = supabaseSongs.map((s) => s.id).toList();
-      final db = await kannadaDatabase;
-      if (supabaseIds.isEmpty) {
-        await db.delete('songs');
-      } else {
-        final placeholders = List.filled(supabaseIds.length, '?').join(',');
-        await db.delete('songs',
-            where: 'id NOT IN ($placeholders)', whereArgs: supabaseIds);
-      }
-      AppLogger.d('LocalDB', 'Synced ${supabaseSongs.length} Kannada songs.');
-    } catch (e) {
-      AppLogger.e('LocalDB', 'Kannada sync failed', e);
-    }
-  }
-
-  // ─── Other Languages CRUD & Sync ─────────────────────────────────────────
-
-  Future<void> upsertOtherSongs(List<Song> songs) async {
-    final db = await otherDatabase;
-    final batch = db.batch();
-    for (final song in songs) {
-      batch.insert(
-        'songs',
-        _songToMap(song),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-    await batch.commit(noResult: true);
-  }
+  // ─── Other Languages ─────────────────────────────────────────────────────
 
   Future<List<Song>> fetchAllOtherSongs() async {
-    try {
-      final db = await otherDatabase;
-      final maps = await db.query('songs', orderBy: 'title COLLATE NOCASE ASC');
-      return maps.map((map) => _songFromMap(map)).toList();
-    } catch (e) {
-      AppLogger.e('LocalDB', 'Error fetching Other songs', e);
-      return [];
-    }
+    return _fetchSongsFromFile('other_data.json');
+  }
+
+  Future<void> syncOtherFromSupabase(
+      {bool forceFullResync = false, bool throwOnError = false}) async {
+    await _syncCategory('other_data', 'other_data.json',
+        forceFullResync: forceFullResync, throwOnError: throwOnError);
   }
 
   Future<void> clearAllOtherSongs() async {
-    final db = await otherDatabase;
-    await db.delete('songs');
-  }
-
-  Future<void> syncOtherFromSupabase() async {
-    try {
-      final connectivity = await Connectivity().checkConnectivity();
-      final isOffline = connectivity.every((r) => r == ConnectivityResult.none);
-      if (isOffline) {
-        AppLogger.d('LocalDB', 'No internet, skipping Other sync.');
-        return;
-      }
-
-      List<Song> supabaseSongs =
-          await SupabaseService.instance.getSongsByCategory('other_data');
-
-      await upsertOtherSongs(supabaseSongs);
-      final supabaseIds = supabaseSongs.map((s) => s.id).toList();
-      final db = await otherDatabase;
-      if (supabaseIds.isEmpty) {
-        await db.delete('songs');
-      } else {
-        final placeholders = List.filled(supabaseIds.length, '?').join(',');
-        await db.delete('songs',
-            where: 'id NOT IN ($placeholders)', whereArgs: supabaseIds);
-      }
-      AppLogger.d('LocalDB', 'Synced ${supabaseSongs.length} Other songs.');
-    } catch (e) {
-      AppLogger.e('LocalDB', 'Other sync failed', e);
-    }
-  }
-
-  /// Cleans up spurious English songs that crept into the Kannada table.
-  Future<void> removeUnwantedKannadaSongs() async {
-    final db = await kannadaDatabase;
-    await db.delete(
-      'songs',
-      where:
-          "(LOWER(title) LIKE ? OR LOWER(title) LIKE ? OR LOWER(title) LIKE ?) OR (LOWER(language) NOT IN (?, ?))",
-      whereArgs: [
-        '%search christian lyrics%',
-        '%search christian%',
-        '%christian lyrics%',
-        'kannada',
-        'kannada_data',
-      ],
-    );
-  }
-
-  // ─── Map helpers ─────────────────────────────────────────────────────────
-
-  Map<String, dynamic> _songToMap(Song song) => {
-        'id': song.id,
-        'title': song.title,
-        'english_title': song.englishTitle,
-        'lyrics': song.lyrics,
-        'trans_lyrics': song.transLyrics,
-        'chords': song.chords,
-        'author_name': song.authorName ?? '',
-        'language': song.category,
-        'genre': song.genre,
-        'key_signature': song.keySignature,
-        'bpm': song.bpm,
-        'youtube_link': song.youtubeLink,
-        'updated_at': song.updatedAt.toIso8601String(),
-      };
-
-  Song _songFromMap(Map<String, dynamic> map) {
-    return Song(
-      id: map['id'] as String,
-      createdAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(map['updated_at'] ?? '') ?? DateTime.now(),
-      title: map['title'] as String,
-      englishTitle: map['english_title'] as String?,
-      lyrics: map['lyrics'] as String,
-      transLyrics: map['trans_lyrics'] as String?,
-      chords: map['chords'] as String?,
-      category: (map['language'] as String? ?? 'unknown_data'),
-      authorName: map['author_name'] as String?,
-      genre: map['genre'] as String?,
-      keySignature: map['key_signature'] as String?,
-      bpm: map['bpm'] as int?,
-      youtubeLink: map['youtube_link'] as String?,
-    );
+    await _deleteFile('other_data.json');
   }
 }

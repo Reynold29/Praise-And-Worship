@@ -4,9 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/widgets/theme_provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/services.dart';
-import 'package:sqflite_sqlcipher/sqflite.dart';
-import 'package:path/path.dart' as p;
-import 'package:vibration/vibration.dart';
+import '../services/local_database_service.dart';
 
 // ─── Theme mode enum ──────────────────────────────────────────────────────────
 enum AppThemeMode {
@@ -112,10 +110,8 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _vibrate() async {
-    if (await Vibration.hasVibrator() == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _vibrate() {
+    HapticFeedback.lightImpact();
   }
 
   Future<void> _openColorPicker() async {
@@ -125,6 +121,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final Color? result = await showModalBottomSheet<Color>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 500),
       backgroundColor: Colors.transparent,
       builder: (ctx) => _ModernColorPicker(
         initialColor: _customColor,
@@ -662,9 +660,8 @@ class _ModernColorPickerState extends State<_ModernColorPicker> {
     Colors.limeAccent,
   ];
 
-  void _vibrate() async {
-    if (await Vibration.hasVibrator() == true)
-      Vibration.vibrate(duration: 18, amplitude: 60);
+  void _vibrate() {
+    HapticFeedback.lightImpact();
   }
 
   @override
@@ -1047,9 +1044,7 @@ class DeveloperOptionsPage extends StatelessWidget {
                 trailing: Icon(Icons.chevron_right_rounded,
                     color: colorScheme.error.withOpacity(0.6)),
                 onTap: () async {
-                  final bool? hasVibration = await Vibration.hasVibrator();
-                  if (hasVibration == true)
-                    Vibration.vibrate(duration: 18, amplitude: 60);
+                  HapticFeedback.lightImpact();
                   if (!context.mounted) return;
                   final confirmed = await showDialog<bool>(
                     context: context,
@@ -1073,10 +1068,9 @@ class DeveloperOptionsPage extends StatelessWidget {
                     ),
                   );
                   if (confirmed == true && context.mounted) {
-                    final dbPath = await getDatabasesPath();
-                    await deleteDatabase(p.join(dbPath, 'songs_encrypted.db'));
-                    await deleteDatabase(
-                        p.join(dbPath, 'kannada_songs_encrypted.db'));
+                    await LocalDatabaseService.instance.clearAllSongs();
+                    await LocalDatabaseService.instance.clearAllKannadaSongs();
+                    await LocalDatabaseService.instance.clearAllOtherSongs();
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(

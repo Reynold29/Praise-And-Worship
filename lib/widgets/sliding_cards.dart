@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:worshipcompanion/screens/settings_page.dart';
 import 'card_model.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 import 'package:worshipcompanion/screens/song_list_screen.dart';
 import 'package:worshipcompanion/screens/add_song_options_screen.dart';
 import 'package:worshipcompanion/screens/about_developer.dart';
@@ -53,13 +53,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
       if (_lastPage != currentPage) {
         _lastPage = currentPage;
         setState(() => _currentPage = currentPage);
-        final bool? hasCustomSupport =
-            await Vibration.hasCustomVibrationsSupport();
-        if (hasCustomSupport == true) {
-          Vibration.vibrate(duration: 6, amplitude: 30);
-        } else {
-          Vibration.vibrate(duration: 6);
-        }
+        HapticFeedback.selectionClick();
       }
     } catch (e) {
       AppLogger.d('App', 'Vibration error: $e');
@@ -74,9 +68,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
     }
   }
 
-  Future<void> _vibrate() async {
-    final hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) Vibration.vibrate(duration: 18, amplitude: 60);
+  void _vibrate() {
+    HapticFeedback.lightImpact();
   }
 
   @override
@@ -94,6 +87,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                 clipBehavior: Clip.none,
                 controller: pageController,
                 itemCount: demoCardData.length,
+                padEnds: false,
                 itemBuilder: (context, index) {
                   return AnimatedBuilder(
                     animation: pageController,
@@ -102,16 +96,15 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                       if (pageController.position.haveDimensions) {
                         pageOffset = pageController.page! - index;
                       }
-                      double gauss = math
+                      // Gaussian curve — peaks when adjacent card is halfway
+                      // into view, creating the sweet 'push-away' parallax.
+                      final double gauss = math
                           .exp(-(math.pow((pageOffset.abs() - 0.5), 2) / 0.08));
-                      bool isCreatePlaylistCard =
-                          demoCardData[index].icon != null;
 
                       return Transform.translate(
-                        offset: Offset(
-                            -32 * gauss * pageOffset.sign -
-                                (isCreatePlaylistCard ? 40 : 60),
-                            0),
+                        // Only the gauss part (no constant offset) so cards
+                        // stay evenly spaced in the viewport.
+                        offset: Offset(-32 * gauss * pageOffset.sign, 0),
                         child: GestureDetector(
                           onTap: () async {
                             final card = demoCardData[index];
@@ -119,72 +112,30 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                               card.onTap!();
                             } else if (card.name == "Kannada Songs") {
                               await Navigator.of(context).push(
-                                PageRouteBuilder(
-                                  pageBuilder: (context, animation,
-                                          secondaryAnimation) =>
-                                      KannadaSongListScreen(
-                                          heroTag: card.heroTag,
-                                          cardImage: card.image,
-                                          onFavoriteToggled:
-                                              widget.onFavoriteToggled),
-                                  transitionsBuilder: (context, animation,
-                                      secondaryAnimation, child) {
-                                    return FadeTransition(
-                                      opacity: animation.drive(
-                                          CurveTween(curve: Curves.easeInQuad)),
-                                      child: child,
-                                    );
-                                  },
-                                  transitionDuration:
-                                      const Duration(milliseconds: 450),
-                                  reverseTransitionDuration:
-                                      const Duration(milliseconds: 400),
+                                snappyFadeRoute(
+                                  page: KannadaSongListScreen(
+                                      heroTag: card.heroTag,
+                                      cardImage: card.image,
+                                      onFavoriteToggled:
+                                          widget.onFavoriteToggled),
                                 ),
                               );
                             } else if (card.name == "Other Languages") {
                               await Navigator.of(context).push(
-                                PageRouteBuilder(
-                                  pageBuilder: (context, animation,
-                                          secondaryAnimation) =>
-                                      OtherSongListScreen(
-                                          heroTag: card.heroTag,
-                                          cardImage: card.image),
-                                  transitionsBuilder: (context, animation,
-                                      secondaryAnimation, child) {
-                                    return FadeTransition(
-                                      opacity: animation.drive(
-                                          CurveTween(curve: Curves.easeInQuad)),
-                                      child: child,
-                                    );
-                                  },
-                                  transitionDuration:
-                                      const Duration(milliseconds: 450),
-                                  reverseTransitionDuration:
-                                      const Duration(milliseconds: 400),
+                                snappyFadeRoute(
+                                  page: OtherSongListScreen(
+                                      heroTag: card.heroTag,
+                                      cardImage: card.image),
                                 ),
                               );
                             } else {
                               await Navigator.of(context).push(
-                                PageRouteBuilder(
-                                  pageBuilder: (context, animation,
-                                          secondaryAnimation) =>
-                                      SongListScreen(
-                                          heroTag: card.heroTag,
-                                          cardImage: card.image,
-                                          onFavoriteToggled:
-                                              widget.onFavoriteToggled),
-                                  transitionsBuilder: (context, animation,
-                                      secondaryAnimation, child) {
-                                    return FadeTransition(
-                                      opacity: animation.drive(
-                                          CurveTween(curve: Curves.easeInQuad)),
-                                      child: child,
-                                    );
-                                  },
-                                  transitionDuration:
-                                      const Duration(milliseconds: 450),
-                                  reverseTransitionDuration:
-                                      const Duration(milliseconds: 400),
+                                snappyFadeRoute(
+                                  page: SongListScreen(
+                                      heroTag: card.heroTag,
+                                      cardImage: card.image,
+                                      onFavoriteToggled:
+                                          widget.onFavoriteToggled),
                                 ),
                               );
                             }
@@ -193,7 +144,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                             tag: demoCardData[index].heroTag,
                             child: Container(
                               margin: const EdgeInsets.only(
-                                  left: 10, right: 10, bottom: 14),
+                                  left: 6, right: 6, bottom: 10),
                               decoration: BoxDecoration(
                                 color: Colors.transparent,
                                 borderRadius: BorderRadius.circular(32),
@@ -209,7 +160,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                 borderRadius: BorderRadius.circular(32),
                                 child: Image.asset(
                                   'assets/cards/${demoCardData[index].image}',
-                                  alignment: Alignment(-pageOffset.abs(), 0),
+                                  alignment: Alignment(
+                                      pageOffset.clamp(-1.0, 1.0) * -0.5, 0),
                                   fit: BoxFit.cover,
                                 ),
                               ),
@@ -231,8 +183,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
                     child: IconButton.filledTonal(
-                      onPressed: () async {
-                        await _vibrate();
+                      onPressed: () {
+                        _vibrate();
                         _onArrowTap(false);
                       },
                       icon: Icon(Icons.arrow_back_ios_new_rounded,
@@ -267,8 +219,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                   Padding(
                     padding: const EdgeInsets.only(right: 4),
                     child: IconButton.filledTonal(
-                      onPressed: () async {
-                        await _vibrate();
+                      onPressed: () {
+                        _vibrate();
                         _onArrowTap(true);
                       },
                       icon: Icon(Icons.arrow_forward_ios_rounded,
@@ -317,8 +269,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                           label: 'Favorites',
                           color: colorScheme.primaryContainer,
                           iconColor: colorScheme.onPrimaryContainer,
-                          onTap: () async {
-                            await _vibrate();
+                          onTap: () {
+                            _vibrate();
                             if (context.mounted) {
                               Navigator.push(
                                   context,
@@ -332,8 +284,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                           label: 'Add Song',
                           color: colorScheme.primaryContainer,
                           iconColor: colorScheme.onPrimaryContainer,
-                          onTap: () async {
-                            await _vibrate();
+                          onTap: () {
+                            _vibrate();
                             if (context.mounted) {
                               Navigator.push(
                                   context,
@@ -347,8 +299,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                           label: 'Settings',
                           color: colorScheme.primaryContainer,
                           iconColor: colorScheme.onPrimaryContainer,
-                          onTap: () async {
-                            await _vibrate();
+                          onTap: () {
+                            _vibrate();
                             if (context.mounted) {
                               Navigator.push(context,
                                   snappyPageRoute(page: const SettingsPage()));
@@ -360,8 +312,8 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                           label: 'About Dev',
                           color: colorScheme.primaryContainer,
                           iconColor: colorScheme.onPrimaryContainer,
-                          onTap: () async {
-                            await _vibrate();
+                          onTap: () {
+                            _vibrate();
                             if (context.mounted) {
                               Navigator.push(
                                   context,
@@ -379,7 +331,7 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                             }
                             return _LoginNavItem(
                               onTap: () async {
-                                await _vibrate();
+                                _vibrate();
                                 final favProv = Provider.of<FavoriteProvider>(
                                     context,
                                     listen: false);

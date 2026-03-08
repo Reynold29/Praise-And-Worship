@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modern Slide Transitions
@@ -42,11 +45,14 @@ Widget snappyTransition(
 }
 
 /// Convenience helper — smooth modern slide page route.
-PageRouteBuilder<T> snappyPageRoute<T>({
+PageRoute<T> snappyPageRoute<T>({
   required Widget page,
-  Duration duration = const Duration(milliseconds: 300),
-  Duration reverseDuration = const Duration(milliseconds: 280),
+  Duration duration = const Duration(milliseconds: 550),
+  Duration reverseDuration = const Duration(milliseconds: 500),
 }) {
+  if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
+    return CupertinoPageRoute<T>(builder: (context) => page);
+  }
   return PageRouteBuilder<T>(
     pageBuilder: (context, animation, secondaryAnimation) => page,
     transitionsBuilder: snappyTransition,
@@ -78,8 +84,8 @@ Widget snappySwitcherTransition(Animation<double> animation, Widget child) {
 PageRouteBuilder<T> snappyFadeRoute<T>({required Widget page}) {
   return PageRouteBuilder<T>(
     pageBuilder: (context, animation, secondaryAnimation) => page,
-    transitionDuration: const Duration(milliseconds: 250),
-    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionDuration: const Duration(milliseconds: 500),
+    reverseTransitionDuration: const Duration(milliseconds: 450),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       final curved = CurvedAnimation(
         parent: animation,

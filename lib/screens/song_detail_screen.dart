@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
@@ -185,11 +185,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         (transposedBass != null ? '/${_transposeNote(transposedBass, 0)}' : '');
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   @override
@@ -669,6 +666,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       BuildContext context, ColorScheme colorScheme, TextTheme textTheme) {
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 500),
       backgroundColor: colorScheme.surfaceContainerHighest,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24.0)),

@@ -16,7 +16,8 @@ class FavoritesSyncService {
 
   Future<bool> _isOnline() async {
     final result = await Connectivity().checkConnectivity();
-    return !result.every((r) => r == ConnectivityResult.none);
+    if (result.isEmpty) return true;
+    return !(result.length == 1 && result.first == ConnectivityResult.none);
   }
 
   // ── Fetch ───────────────────────────────────────────────────────────────

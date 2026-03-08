@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/utils/song_utils.dart';
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 
 class SongCardWidget extends StatefulWidget {
   final Song song;
@@ -30,11 +30,8 @@ class _SongCardWidgetState extends State<SongCardWidget> {
     super.initState();
   }
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   @override

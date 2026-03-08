@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:worshipcompanion/screens/add_manual_song_screen.dart'; // TODO: Create AddManualSongScreen
-import 'package:vibration/vibration.dart';
+import 'package:flutter/services.dart';
 import 'scan_song_screen.dart'; // Add this import for the new screen
 
 class AddSongOptionsScreen extends StatelessWidget {
   const AddSongOptionsScreen({super.key});
 
-  void _performVibration() async {
-    final bool? hasVibration = await Vibration.hasVibrator();
-    if (hasVibration == true) {
-      Vibration.vibrate(duration: 18, amplitude: 60);
-    }
+  void _performVibration() {
+    HapticFeedback.lightImpact();
   }
 
   @override
@@ -56,22 +53,6 @@ class AddSongOptionsScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                     builder: (context) => const AddManualSongScreen()),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          _buildOptionCard(
-            context: context,
-            icon: Icons.search_rounded,
-            title: 'Search Online & Add',
-            subtitle:
-                'Find songs from online resources to add to your companion.',
-            onTap: () {
-              _performVibration();
-              // TODO: Implement Search Online functionality
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('Search Online & Add - Coming Soon!')),
               );
             },
           ),

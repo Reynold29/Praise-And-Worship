@@ -160,6 +160,7 @@ class OnboardingScreenState extends State<OnboardingScreen> {
                             elevation: 2,
                             child: TextField(
                               controller: _usernameController,
+                              textCapitalization: TextCapitalization.words,
                               style: const TextStyle(
                                   color: Colors.black,
                                   fontWeight: FontWeight.w500),

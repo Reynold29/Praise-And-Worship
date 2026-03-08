@@ -113,7 +113,10 @@ Future<void> main() async {
   if (supabaseInitialized) {
     try {
       final connectivityResult = await Connectivity().checkConnectivity();
-      if (!connectivityResult.every((r) => r == ConnectivityResult.none)) {
+      final online = connectivityResult.isEmpty ||
+          !(connectivityResult.length == 1 &&
+              connectivityResult.first == ConnectivityResult.none);
+      if (online) {
         // Run sync in background without blocking app startup
         LocalDatabaseService.instance.syncFromSupabase().catchError((e) {
           AppLogger.e('App', 'Background English sync failed', e);
@@ -173,8 +176,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _connectivity = Connectivity();
     _connectivityStream = _connectivity.onConnectivityChanged;
     _connectivityStream.listen((result) async {
-      if (!result.every((r) => r == ConnectivityResult.none) &&
-          widget.supabaseInitialized) {
+      final online = result.isEmpty ||
+          !(result.length == 1 && result.first == ConnectivityResult.none);
+      if (online && widget.supabaseInitialized) {
         await LocalDatabaseService.instance.syncFromSupabase();
         await LocalDatabaseService.instance.syncKannadaFromSupabase();
         await LocalDatabaseService.instance.syncOtherFromSupabase();
