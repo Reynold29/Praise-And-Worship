@@ -9,6 +9,7 @@ class AppConfigProvider extends ChangeNotifier {
   bool _socialLoginEnabled =
       true; // show by default until server says otherwise
   String _appMinVersion = '1.0.0';
+  List<String> _masterEmails = [];
 
   /// Whether the config has been fetched at least once.
   bool get loaded => _loaded;
@@ -20,6 +21,12 @@ class AppConfigProvider extends ChangeNotifier {
   /// Minimum app version required (for future use).
   String get appMinVersion => _appMinVersion;
 
+  /// Check if the given email is in the master emails list.
+  bool isMasterUser(String? email) {
+    if (email == null || email.isEmpty) return false;
+    return _masterEmails.contains(email.trim().toLowerCase());
+  }
+
   /// Fetch config from Supabase and notify listeners.
   /// Safe to call multiple times (e.g. on app resume).
   Future<void> load() async {
@@ -30,6 +37,14 @@ class AppConfigProvider extends ChangeNotifier {
 
     _socialLoginEnabled = enabled;
     _appMinVersion = config['app_version_min'] ?? '1.0.0';
+
+    final masterEmailsRaw = config['master_emails'] ?? '';
+    _masterEmails = masterEmailsRaw
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
     _loaded = true;
 
     notifyListeners();

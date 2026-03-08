@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:worshipcompanion/widgets/auth_provider.dart';
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
+import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
 class SongDetailScreen extends StatefulWidget {
@@ -189,6 +192,76 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     HapticFeedback.lightImpact();
   }
 
+  void _confirmDeleteSong(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Song?'),
+          content: const Text(
+              'This will permanently delete this song from the database. This action cannot be undone.'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete'),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop(); // Close dialog
+                _performDeleteSong();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performDeleteSong() async {
+    final String songId = widget.tabData['id'].toString();
+    final String songCategory = widget.tabData['category'] as String;
+
+    // Convert generic category to DB table names if necessary.
+    // If getting songs is mapping table to category, map it back.
+    String tableName = songCategory;
+    if (!tableName.endsWith('_data')) {
+      if (tableName == 'english')
+        tableName = 'english_data';
+      else if (tableName == 'kannada')
+        tableName = 'kannada_data';
+      else
+        tableName = 'other_data';
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await SupabaseService.instance.deleteSong(tableName, songId);
+      if (mounted) {
+        Navigator.of(context).pop(); // remove loading indicator
+        Navigator.of(context).pop(); // go back to list
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Song deleted successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // remove loading indicator
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete song: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -201,9 +274,15 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         (line['chords'] as List?)?.isNotEmpty == true);
 
     final favoriteProvider = Provider.of<FavoriteProvider>(context);
-    final String songId = widget.tabData['id'] as String;
+    final authProvider = Provider.of<AuthProvider>(context);
+    final appConfigProvider = Provider.of<AppConfigProvider>(context);
+
+    final String songId = widget.tabData['id'].toString();
     final String songCategory = widget.tabData['category'] as String;
     final bool isFavorite = favoriteProvider.isFavorite(songCategory, songId);
+
+    final bool isMaster =
+        appConfigProvider.isMasterUser(authProvider.currentUser?.email);
 
     return Scaffold(
       appBar: AppBar(
@@ -361,27 +440,27 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                             Builder(builder: (context) {
                               final String songCategory =
                                   widget.tabData['category'] as String;
+                              final String? songLanguage =
+                                  widget.tabData['language'] as String?;
+
                               String nativeLangName = 'Original';
-                              if (songCategory == 'kannada' ||
-                                  songCategory == 'kannada_data') {
-                                nativeLangName = 'Kannada';
-                              } else if (songCategory == 'hindi' ||
-                                  songCategory == 'hindi_data') {
-                                nativeLangName = 'Hindi';
-                              } else if (songCategory == 'tamil' ||
-                                  songCategory == 'tamil_data') {
-                                nativeLangName = 'Tamil';
-                              } else if (songCategory == 'malayalam' ||
-                                  songCategory == 'malayalam_data') {
-                                nativeLangName = 'Malayalam';
-                              } else if (songCategory == 'telugu' ||
-                                  songCategory == 'telugu_data') {
-                                nativeLangName = 'Telugu';
-                              } else if (songCategory != 'english' &&
-                                  songCategory != 'english_data' &&
-                                  songCategory != 'unknown_data') {
-                                nativeLangName = songCategory[0].toUpperCase() +
-                                    songCategory.substring(1);
+
+                              if (songLanguage != null &&
+                                  songLanguage.isNotEmpty) {
+                                // Direct language definition takes precedence
+                                nativeLangName = songLanguage[0].toUpperCase() +
+                                    songLanguage.substring(1).toLowerCase();
+                              } else {
+                                // Fallback to category if language is null/empty
+                                if (songCategory == 'kannada' ||
+                                    songCategory == 'kannada_data') {
+                                  nativeLangName = 'Kannada';
+                                } else if (songCategory == 'english' ||
+                                    songCategory == 'english_data') {
+                                  nativeLangName = 'English';
+                                } else {
+                                  nativeLangName = 'Original';
+                                }
                               }
                               return _buildLanguageChips(
                                   context, nativeLangName);
@@ -560,16 +639,40 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          _performVibration();
-          _showFontSizeBottomSheet(context, colorScheme, textTheme);
-        },
-        backgroundColor: colorScheme.primaryContainer,
-        foregroundColor: colorScheme.onPrimaryContainer,
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: const Icon(Icons.format_size_rounded),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          if (isMaster)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: FloatingActionButton(
+                heroTag: 'deleteBtn',
+                onPressed: () {
+                  _performVibration();
+                  _confirmDeleteSong(context);
+                },
+                backgroundColor: colorScheme.errorContainer,
+                foregroundColor: colorScheme.onErrorContainer,
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                child: const Icon(Icons.delete_forever_rounded),
+              ),
+            ),
+          FloatingActionButton(
+            heroTag: 'fontSizeBtn',
+            onPressed: () {
+              _performVibration();
+              _showFontSizeBottomSheet(context, colorScheme, textTheme);
+            },
+            backgroundColor: colorScheme.primaryContainer,
+            foregroundColor: colorScheme.onPrimaryContainer,
+            elevation: 2,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: const Icon(Icons.format_size_rounded),
+          ),
+        ],
       ),
     );
   }

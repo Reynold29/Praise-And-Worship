@@ -4,6 +4,7 @@ import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
+import 'package:worshipcompanion/widgets/app_config_provider.dart';
 
 class AddManualSongScreen extends StatefulWidget {
   final String? initialTitle;
@@ -18,9 +19,13 @@ class AddManualSongScreen extends StatefulWidget {
 
 class _AddManualSongScreenState extends State<AddManualSongScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _scrollController = ScrollController();
   final _titleController = TextEditingController();
+  final _englishTitleController = TextEditingController();
   final _authorController = TextEditingController();
   final _lyricsController = TextEditingController();
+  final _transLyricsController = TextEditingController();
+  final _chordsController = TextEditingController();
   final _genreController = TextEditingController();
   final _keySignatureController = TextEditingController();
   final _bpmController = TextEditingController();
@@ -29,12 +34,6 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
   final _submittedByController = TextEditingController();
 
   String? _selectedLanguage;
-  final List<String> _languages = [
-    'English',
-    'Kannada',
-    'Hindi',
-    'Other',
-  ];
 
   @override
   void initState() {
@@ -62,14 +61,18 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
   @override
   void dispose() {
     _titleController.dispose();
+    _englishTitleController.dispose();
     _authorController.dispose();
     _lyricsController.dispose();
+    _transLyricsController.dispose();
+    _chordsController.dispose();
     _genreController.dispose();
     _keySignatureController.dispose();
     _bpmController.dispose();
     _youtubeLinkController.dispose();
     _reviewNotesController.dispose();
     _submittedByController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -83,8 +86,15 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
       final auth = Provider.of<AuthProvider>(context, listen: false);
       final songData = {
         'title': _titleController.text,
+        'english_title': _selectedLanguage != 'English'
+            ? _englishTitleController.text
+            : null,
         'author_name': _authorController.text,
         'lyrics': _lyricsController.text,
+        'trans_lyrics': (_selectedLanguage != 'English')
+            ? _transLyricsController.text
+            : null,
+        'chords': _chordsController.text,
         'language': _selectedLanguage ?? '',
         'genre': _genreController.text,
         'key_signature': _keySignatureController.text,
@@ -95,18 +105,53 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
         'is_reviewed': false,
         'review_notes': '',
       };
+      final appConfig = Provider.of<AppConfigProvider>(context, listen: false);
+      final currentUserEmail = auth.currentUser?.email;
+      final isMaster = appConfig.isMasterUser(currentUserEmail);
+
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
       try {
-        final success =
-            await SupabaseService.instance.submitSongForReview(songData);
+        final success;
+        final String language = (_selectedLanguage ?? '').toLowerCase();
+
+        if (isMaster) {
+          // Master users: directly insert to language table
+          final directData = Map<String, dynamic>.from(songData);
+          directData.remove('submitted_by');
+          directData.remove('submitted_by_user_id');
+          directData.remove('is_reviewed');
+          directData.remove('review_notes');
+          directData['category'] = language;
+
+          if (language == 'english') {
+            directData.remove('english_title');
+            directData.remove('trans_lyrics');
+            success = await SupabaseService.instance
+                .addSongDirect('english_data', directData);
+          } else if (language == 'kannada') {
+            success = await SupabaseService.instance
+                .addSongDirect('kannada_data', directData);
+          } else {
+            success = await SupabaseService.instance
+                .addSongDirect('other_data', directData);
+          }
+        } else {
+          // Regular users: submit to pending
+          success =
+              await SupabaseService.instance.submitSongForReview(songData);
+        }
+
         Navigator.of(context).pop(); // Remove loading
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Song submitted for review!')),
+            SnackBar(
+                content: Text(isMaster
+                    ? 'Song successfully added directly to the database!'
+                    : 'Song submitted for review!')),
           );
           Navigator.pop(context); // Pop back to options screen
           Navigator.pop(
@@ -140,7 +185,112 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
           ),
         );
       }
+    } else {
+      // Validate failed, scroll to top where most errors usually are (like title)
+      _scrollController.animateTo(0.0,
+          duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     }
+  }
+
+  void _showLanguageDialog() {
+    _performVibration();
+    showDialog(
+      context: context,
+      builder: (context) {
+        final predefinedLangs = [
+          'English',
+          'Kannada',
+          'Hindi',
+          'Tamil',
+          'Malayalam',
+          'Telugu'
+        ];
+        String tempSelected = _selectedLanguage ?? 'English';
+        if (!predefinedLangs.contains(tempSelected)) {
+          tempSelected = 'Other';
+        }
+        String otherText = (!predefinedLangs.contains(_selectedLanguage) &&
+                _selectedLanguage != null)
+            ? _selectedLanguage!
+            : '';
+
+        return StatefulBuilder(
+          builder: (context, setStateBuilder) {
+            final colorScheme = Theme.of(context).colorScheme;
+            return AlertDialog(
+              title: const Text('Select Language'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ...predefinedLangs.map((lang) => RadioListTile<String>(
+                          title: Text(lang),
+                          value: lang,
+                          groupValue: tempSelected,
+                          activeColor: colorScheme.primary,
+                          onChanged: (val) {
+                            setStateBuilder(() {
+                              tempSelected = val!;
+                              if (tempSelected != 'Other') {
+                                otherText = '';
+                              }
+                            });
+                          },
+                        )),
+                    RadioListTile<String>(
+                      title: const Text('Other'),
+                      value: 'Other',
+                      groupValue: tempSelected,
+                      activeColor: colorScheme.primary,
+                      onChanged: (val) {
+                        setStateBuilder(() {
+                          tempSelected = val!;
+                        });
+                      },
+                    ),
+                    if (tempSelected == 'Other')
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: TextField(
+                          autofocus: true,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: const InputDecoration(
+                            labelText: 'Type new language',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (val) {
+                            setStateBuilder(() => otherText = val);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed:
+                      (tempSelected == 'Other' && otherText.trim().isEmpty)
+                          ? null
+                          : () {
+                              setState(() {
+                                _selectedLanguage = tempSelected == 'Other'
+                                    ? otherText.trim()
+                                    : tempSelected;
+                              });
+                              Navigator.pop(context);
+                            },
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -172,6 +322,7 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
+            controller: _scrollController,
             children: <Widget>[
               _buildTextField(
                 controller: _titleController,
@@ -184,6 +335,15 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                   return null;
                 },
               ),
+              if (_selectedLanguage != 'English') ...[
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: _englishTitleController,
+                  labelText: 'English Title',
+                  icon: Icons.translate_rounded,
+                  hintText: 'Transliterated title in English',
+                ),
+              ],
               const SizedBox(height: 16),
               _buildTextField(
                 controller: _authorController,
@@ -213,34 +373,61 @@ class _AddManualSongScreenState extends State<AddManualSongScreen> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedLanguage,
-                items: _languages
-                    .map((lang) => DropdownMenuItem(
-                          value: lang,
-                          child: Text(lang),
-                        ))
-                    .toList(),
-                onChanged: (val) {
-                  _performVibration();
-                  setState(() => _selectedLanguage = val);
-                },
-                decoration: InputDecoration(
-                  labelText: 'Language',
-                  prefixIcon:
-                      Icon(Icons.language_rounded, color: colorScheme.primary),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12.0)),
-                  filled: true,
-                  fillColor: colorScheme.surfaceVariant.withAlpha(100),
+              if (_selectedLanguage != 'English') ...[
+                const SizedBox(height: 16),
+                _buildTextField(
+                  controller: _transLyricsController,
+                  labelText: 'Transliterated Lyrics',
+                  icon: Icons.subtitles_rounded,
+                  maxLines: 10,
+                  textCapitalization: TextCapitalization.sentences,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please select a language';
-                  }
-                  return null;
-                },
+              ],
+              const SizedBox(height: 16),
+              _buildTextField(
+                controller: _chordsController,
+                labelText: 'Chords (Optional)',
+                icon: Icons.piano_rounded,
+                maxLines: 5,
+                textCapitalization: TextCapitalization.sentences,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+              ),
+              const SizedBox(height: 16),
+              InkWell(
+                onTap: _showLanguageDialog,
+                borderRadius: BorderRadius.circular(12.0),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Language',
+                    prefixIcon: Icon(Icons.language_rounded,
+                        color: colorScheme.primary),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0)),
+                    filled: true,
+                    fillColor: colorScheme.surfaceVariant.withAlpha(100),
+                    errorText:
+                        _selectedLanguage == null || _selectedLanguage!.isEmpty
+                            ? 'Please select a language'
+                            : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedLanguage ?? 'Select a Language',
+                        style: TextStyle(
+                            color: _selectedLanguage != null
+                                ? colorScheme.onSurfaceVariant
+                                : colorScheme.onSurfaceVariant.withAlpha(150),
+                            fontSize: 16),
+                      ),
+                      const Icon(Icons.arrow_drop_down_rounded),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               _buildTextField(

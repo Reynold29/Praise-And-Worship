@@ -64,6 +64,29 @@ class SupabaseService {
     }
   }
 
+  Future<bool> addSongDirect(
+      String table, Map<String, dynamic> songData) async {
+    try {
+      await _client.from(table).insert(songData);
+      return true;
+    } on PostgrestException catch (e) {
+      AppLogger.d('App', 'Supabase direct insert error: \\${e.message}');
+      throw Exception('Failed to add song directly: \\${e.message}');
+    } catch (e) {
+      AppLogger.d('App', 'Error adding song directly: \\${e.toString()}');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteSong(String table, String id) async {
+    try {
+      await _client.from(table).delete().eq('id', id);
+    } catch (e) {
+      AppLogger.d('App', 'Error deleting song from $table: \\${e.toString()}');
+      rethrow;
+    }
+  }
+
   // You can add more methods here for other Supabase interactions:
   // - getSongById(String id)
   // - addSong(Song song)
