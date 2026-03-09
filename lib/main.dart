@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
@@ -18,6 +19,8 @@ import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
 import 'package:worshipcompanion/widgets/app_config_provider.dart';
 import 'utils/app_logger.dart';
+import 'package:app_links/app_links.dart';
+import 'services/qr_router_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -129,6 +132,11 @@ Future<void> main() async {
         LocalDatabaseService.instance.syncOtherFromSupabase().catchError((e) {
           AppLogger.e('App', 'Background Other sync failed', e);
         });
+
+        // Trigger periodic 3-day full sync check
+        LocalDatabaseService.instance.syncAllCategories().catchError((e) {
+          AppLogger.e('App', 'Periodic full sync check failed', e);
+        });
       }
       RealtimeSyncService.instance.startListening();
     } catch (e) {
@@ -166,8 +174,11 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
   late final Connectivity _connectivity;
   late final Stream<List<ConnectivityResult>> _connectivityStream;
+  late final AppLinks _appLinks;
 
   @override
   void initState() {
@@ -189,6 +200,67 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         }
       }
     });
+
+    _initDeepLinks();
+  }
+
+  Future<void> _initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // 1. Handle initial link (when app is launched from a link)
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleLink(initialUri.toString());
+      }
+    } catch (e) {
+      AppLogger.e('App', 'Failed to get initial link', e);
+    }
+
+    // 2. Listen to incoming links (when app is already running)
+    _appLinks.uriLinkStream.listen((uri) {
+      _handleLink(uri.toString());
+    }, onError: (err) {
+      AppLogger.e('App', 'Deep link stream error', err);
+    });
+
+    // 3. Check clipboard for "Deferred Deep Link" (Post-install)
+    _checkClipboardForDeepLink();
+  }
+
+  Future<void> _checkClipboardForDeepLink() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text;
+      if (text != null &&
+          text.contains('projects.reyziehomelab.com/worshipcompanion/song')) {
+        AppLogger.d('App', 'Found deferred deep link in clipboard: $text');
+        // Wait for Navigator
+        _handleLink(text);
+        // Clear clipboard to avoid re-opening on next launch
+        // We only clear if it's OUR specific link
+        await Clipboard.setData(const ClipboardData(text: ''));
+      }
+    } catch (e) {
+      AppLogger.e('App', 'Clipboard check failed', e);
+    }
+  }
+
+  Future<void> _handleLink(String url) async {
+    AppLogger.d('App', 'Processing deep link: $url');
+    // Wait for Navigator to be ready if needed
+    int retries = 0;
+    while (navigatorKey.currentContext == null && retries < 15) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      retries++;
+    }
+
+    if (mounted) {
+      QRRouterService.instance.handleUrl(
+        navigatorKey.currentContext ?? context,
+        url,
+      );
+    }
   }
 
   @override
@@ -250,6 +322,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         }
 
         return MaterialApp(
+          navigatorKey: navigatorKey,
           theme: ThemeData(
             useMaterial3: true,
             colorScheme: lightSchemeToUse,

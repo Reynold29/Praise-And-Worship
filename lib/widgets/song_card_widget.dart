@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 
 class SongCardWidget extends StatefulWidget {
   final Song song;
+  final int? displayIndex;
   final double fontSize;
   final bool hideFavoriteButton;
   final bool showEnglishTitle;
@@ -16,6 +17,7 @@ class SongCardWidget extends StatefulWidget {
   const SongCardWidget(
       {super.key,
       required this.song,
+      this.displayIndex,
       this.fontSize = 16,
       this.hideFavoriteButton = false,
       this.showEnglishTitle = false});
@@ -42,12 +44,21 @@ class _SongCardWidgetState extends State<SongCardWidget> {
     final bool isFavorite =
         favoriteProvider.isFavorite(widget.song.category, widget.song.id);
 
-    // Determine if this is a Kannada song
     final isKannada =
         widget.song.category.trim().toLowerCase() == 'kannada_data' ||
             widget.song.category.trim().toLowerCase() == 'kannada';
     final hasAuthor = widget.song.authorName != null &&
         widget.song.authorName!.trim().isNotEmpty;
+
+    final baseTitle = (widget.showEnglishTitle &&
+            widget.song.englishTitle != null &&
+            widget.song.englishTitle!.isNotEmpty)
+        ? widget.song.englishTitle!
+        : widget.song.title;
+
+    final displayTitle = widget.displayIndex != null
+        ? '${widget.displayIndex}. $baseTitle'
+        : baseTitle;
 
     return Card(
       elevation: 1.5, // Slightly reduced elevation
@@ -104,11 +115,7 @@ class _SongCardWidgetState extends State<SongCardWidget> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      (widget.showEnglishTitle &&
-                              widget.song.englishTitle != null &&
-                              widget.song.englishTitle!.isNotEmpty)
-                          ? widget.song.englishTitle!
-                          : widget.song.title,
+                      displayTitle,
                       style: textTheme.titleMedium?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w600,

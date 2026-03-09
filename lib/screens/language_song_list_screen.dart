@@ -31,7 +31,17 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
   @override
   void initState() {
     super.initState();
-    _filteredSongs = widget.songs;
+    _filteredSongs = List.from(widget.songs);
+    // Sort alphabetically: prioritize englishTitle for sorting if available
+    _filteredSongs.sort((a, b) {
+      final aTitle = (a.englishTitle != null && a.englishTitle!.isNotEmpty)
+          ? a.englishTitle!
+          : a.title;
+      final bTitle = (b.englishTitle != null && b.englishTitle!.isNotEmpty)
+          ? b.englishTitle!
+          : b.title;
+      return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
+    });
     _initializeSearchController();
   }
 
@@ -62,12 +72,19 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
 
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      filtered = filtered.where((song) {
-        return song.title.toLowerCase().contains(query) ||
-            (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
-            (song.authorName?.toLowerCase().contains(query) ?? false) ||
-            song.lyrics.toLowerCase().contains(query);
-      }).toList();
+      filtered = widget.songs
+          .asMap()
+          .entries
+          .where((entry) {
+            final song = entry.value;
+            final indexStr = (entry.key + 1).toString();
+            return indexStr.contains(query) ||
+                song.title.toLowerCase().contains(query) ||
+                (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
+                (song.authorName?.toLowerCase().contains(query) ?? false);
+          })
+          .map((e) => e.value)
+          .toList();
     }
 
     setState(() {
@@ -251,10 +268,12 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
                     padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
                     itemBuilder: (context, index) {
                       final song = _filteredSongs[index];
+                      final originalIndex = widget.songs.indexOf(song) + 1;
                       return SongCardWidget(
                         song: song,
                         fontSize: _fontSize,
                         showEnglishTitle: _showEnglishTitle,
+                        displayIndex: originalIndex,
                       );
                     },
                   ),

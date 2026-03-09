@@ -289,18 +289,10 @@ class _HomeScreenState extends State<HomeScreen> {
         final displayLang = mapCategoryToDisplayLang(actualDbCategory);
         favs[displayLang]!.add(foundSong);
       } else {
-        // SAFETY GUARD: Only scrub stale favorites if we are SURE our local DB is fully populated.
-        // If allEnglish/allKannada are completely empty, the user might just be offline or blocked by RLS,
-        // so we preserve the favorite key instead of silently wiping it permanently.
-        final localDbIsEmpty =
-            allEnglish.isEmpty && allKannada.isEmpty && allOther.isEmpty;
-        if (!localDbIsEmpty) {
-          AppLogger.d('HomeScreen', 'Stale favourite removed: $key');
-          _favoriteProviderInstance.toggleFavorite(parts[0], id);
-        } else {
-          AppLogger.w('HomeScreen',
-              'Could not find favorite $key, but local DB is empty. Preserving key.');
-        }
+        // If not found in local DB, it might be a newly approved song waiting for sync.
+        // We log it, but we NO LONGER remove it from FavoriteProvider.
+        // This ensures the favorite remains active in the specialized list screens.
+        AppLogger.d('HomeScreen', 'Favorite song not in local cache yet: $key');
       }
     }
 
@@ -1903,6 +1895,7 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
       }
       if (q.isEmpty) return true;
       return s.title.toLowerCase().contains(q) ||
+          (s.englishTitle?.toLowerCase().contains(q) ?? false) ||
           (s.authorName?.toLowerCase().contains(q) ?? false);
     }).toList();
 

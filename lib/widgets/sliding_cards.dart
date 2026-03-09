@@ -11,6 +11,7 @@ import 'package:worshipcompanion/screens/about_developer.dart';
 import 'package:worshipcompanion/screens/kannada_song_list_screen.dart';
 import 'package:worshipcompanion/screens/other_song_list_screen.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
+import 'package:worshipcompanion/screens/qr_scanner_screen.dart';
 import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
@@ -291,6 +292,21 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                   context,
                                   snappyPageRoute(
                                       page: const AddSongOptionsScreen()));
+                            }
+                          },
+                        ),
+                        _NavItem(
+                          icon: Icons.qr_code_scanner_rounded,
+                          label: 'Scanner',
+                          color: colorScheme.primaryContainer,
+                          iconColor: colorScheme.onPrimaryContainer,
+                          onTap: () {
+                            _vibrate();
+                            if (context.mounted) {
+                              Navigator.push(
+                                  context,
+                                  snappyPageRoute(
+                                      page: const QRScannerScreen()));
                             }
                           },
                         ),

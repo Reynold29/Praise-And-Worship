@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/favorites_sync_service.dart';
+import '../services/local_database_service.dart';
 import '../utils/app_logger.dart';
 
 /// Dual-mode favourite store.
@@ -81,6 +82,10 @@ class FavoriteProvider with ChangeNotifier {
       if (_isLoggedIn && _userId != null) {
         unawaited(FavoritesSyncService.instance.addToCloud(_userId!, cleanKey));
       }
+
+      // Proactive Sync: if this song was just added, trigger a background sync
+      // to ensure it's available locally for the Home Page and offline use.
+      LocalDatabaseService.instance.triggerBackgroundSync(category);
     }
 
     unawaited(_persistLocal());

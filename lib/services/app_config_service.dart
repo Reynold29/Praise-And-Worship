@@ -11,6 +11,8 @@ class AppConfigService {
   static const Map<String, String> _defaults = {
     'social_login_enabled': '1',
     'app_version_min': '1.0.0',
+    'qr_base_url': 'https://projects.reyziehomelab.com/worshipcompanion',
+    'whitelisted_qr_domains': 'projects.reyziehomelab.com',
   };
 
   /// Returns all rows from `app_config` as a flat Map<key, value>.

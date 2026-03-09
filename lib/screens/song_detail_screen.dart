@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
@@ -7,6 +6,8 @@ import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/widgets/app_config_provider.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import '../services/qr_router_service.dart';
 
 class SongDetailScreen extends StatefulWidget {
   final Map<String, dynamic>
@@ -76,6 +77,134 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   void dispose() {
     _ytController?.close();
     super.dispose();
+  }
+
+  void _showQRShareDialog() async {
+    _performVibration();
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final config = Provider.of<AppConfigProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (ctx) =>
+          Center(child: CircularProgressIndicator(color: colorScheme.primary)),
+    );
+
+    try {
+      final category = widget.tabData['category'] as String;
+      final songId = widget.tabData['id'].toString();
+
+      String langCode = 'other';
+      if (category == 'english' || category == 'english_data') {
+        langCode = 'english';
+      } else if (category == 'kannada' || category == 'kannada_data') {
+        langCode = 'kannada';
+      }
+
+      final index =
+          await QRRouterService.instance.getSongIndex(langCode, songId);
+
+      if (context.mounted) Navigator.of(context).pop(); // hide loading
+
+      if (index == 0) throw Exception('Song not found in local index');
+
+      final qrUrl = '${config.qrBaseUrl}/song?l=$langCode&i=$index';
+
+      if (!context.mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: colorScheme.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+          contentPadding: const EdgeInsets.all(24),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Share Song',
+                  style: textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                'Anyone can scan this to open the song',
+                style: textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colorScheme.shadow.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: QrImageView(
+                  data: qrUrl,
+                  version: QrVersions.auto,
+                  size: 200.0,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.circle,
+                    color: Color(0xFF0038A8), // Dark Blue
+                  ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.circle,
+                    color: Color(0xFF0038A8), // Dark Blue
+                  ),
+                  embeddedImage: const AssetImage('assets/icons/app_logo.png'),
+                  embeddedImageStyle: const QrEmbeddedImageStyle(
+                    size: Size(44, 44),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _title,
+                style: textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+              ),
+              if (_artistName.isNotEmpty)
+                Text(
+                  _artistName,
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('Done'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context).pop(); // hide loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error generating QR: $e')),
+        );
+      }
+    }
   }
 
   void _closeYoutubePlayer() {
@@ -297,6 +426,12 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         elevation: 1,
         iconTheme: IconThemeData(color: colorScheme.onSurface),
         actions: [
+          IconButton(
+            icon: Icon(Icons.qr_code_2_rounded,
+                color: colorScheme.onSurfaceVariant),
+            tooltip: 'Share via QR',
+            onPressed: _showQRShareDialog,
+          ),
           IconButton(
             icon: AnimatedSwitcher(
               duration: const Duration(milliseconds: 400),

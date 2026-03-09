@@ -170,15 +170,21 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       final query = _searchQuery.toLowerCase();
       final kannadaQuery = inditrans.transliterate(
           query, inditrans.Script.itrans, inditrans.Script.kannada);
-      filtered = filtered.where((song) {
-        return song.title.toLowerCase().contains(query) ||
-            song.title.contains(kannadaQuery) ||
-            (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
-            (song.authorName?.toLowerCase().contains(query) ?? false) ||
-            (song.authorName?.contains(kannadaQuery) ?? false) ||
-            song.lyrics.toLowerCase().contains(query) ||
-            song.lyrics.contains(kannadaQuery);
-      }).toList();
+      filtered = _songs
+          .asMap()
+          .entries
+          .where((entry) {
+            final song = entry.value;
+            final indexStr = (entry.key + 1).toString();
+            return indexStr.contains(query) ||
+                song.title.toLowerCase().contains(query) ||
+                song.title.contains(kannadaQuery) ||
+                (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
+                (song.authorName?.toLowerCase().contains(query) ?? false) ||
+                (song.authorName?.contains(kannadaQuery) ?? false);
+          })
+          .map((e) => e.value)
+          .toList();
     }
     if (_selectedLetter != null && _selectedLetter!.isNotEmpty) {
       filtered = filtered.where((song) {
@@ -203,8 +209,21 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       final fetchedSongs =
           await SupabaseService.instance.getSongsByCategory('kannada_data');
       if (mounted) {
+        final filtered = _filterInvalidSongs(fetchedSongs);
+
+        // Sort alphabetically: prioritize englishTitle for sorting if available
+        filtered.sort((a, b) {
+          final aTitle = (a.englishTitle != null && a.englishTitle!.isNotEmpty)
+              ? a.englishTitle!
+              : a.title;
+          final bTitle = (b.englishTitle != null && b.englishTitle!.isNotEmpty)
+              ? b.englishTitle!
+              : b.title;
+          return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
+        });
+
         setState(() {
-          _songs = _filterInvalidSongs(fetchedSongs);
+          _songs = filtered;
           _generateAvailableAlphabet();
           _filterSongs();
           _isLoading = false;
@@ -381,8 +400,26 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                         final fetched = await LocalDatabaseService.instance
                             .fetchAllKannadaSongs();
                         if (!mounted) return;
+
+                        final filtered = _filterInvalidSongs(fetched);
+
+                        // Sort alphabetically: prioritize englishTitle for sorting if available
+                        filtered.sort((a, b) {
+                          final aTitle = (a.englishTitle != null &&
+                                  a.englishTitle!.isNotEmpty)
+                              ? a.englishTitle!
+                              : a.title;
+                          final bTitle = (b.englishTitle != null &&
+                                  b.englishTitle!.isNotEmpty)
+                              ? b.englishTitle!
+                              : b.title;
+                          return aTitle
+                              .toLowerCase()
+                              .compareTo(bTitle.toLowerCase());
+                        });
+
                         setState(() {
-                          _songs = _filterInvalidSongs(fetched);
+                          _songs = filtered;
                           _generateAvailableAlphabet();
                           _filterSongs();
                           _isLoading = false;
@@ -524,10 +561,12 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                                 const EdgeInsets.only(top: 8.0, bottom: 8.0),
                             itemBuilder: (context, index) {
                               final song = _filteredSongs[index];
+                              final originalIndex = _songs.indexOf(song) + 1;
                               return SongCardWidget(
                                 song: song,
                                 fontSize: _fontSize,
                                 showEnglishTitle: _showEnglishTitle,
+                                displayIndex: originalIndex,
                               );
                             },
                           ),

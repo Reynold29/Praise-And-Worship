@@ -74,8 +74,8 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
       final query = _searchQuery.toLowerCase();
       filtered = filtered.where((song) {
         return song.title.toLowerCase().contains(query) ||
-            (song.authorName?.toLowerCase().contains(query) ?? false) ||
-            song.lyrics.toLowerCase().contains(query);
+            (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
+            (song.authorName?.toLowerCase().contains(query) ?? false);
       }).toList();
     }
 
@@ -106,6 +106,17 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
           .toSet()
           .toList();
       uniqueCategories.sort();
+
+      // Sort alphabetically: prioritize englishTitle for sorting if available
+      songs.sort((a, b) {
+        final aTitle = (a.englishTitle != null && a.englishTitle!.isNotEmpty)
+            ? a.englishTitle!
+            : a.title;
+        final bTitle = (b.englishTitle != null && b.englishTitle!.isNotEmpty)
+            ? b.englishTitle!
+            : b.title;
+        return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
+      });
 
       setState(() {
         _songs = songs;
@@ -299,18 +310,38 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
                             if (!mounted) return;
                             final uniqueCategories = fetched
                                 .map((s) => s.category)
-                                .where((c) =>
-                                    c != 'unknown_data' && c.isNotEmpty)
+                                .where(
+                                    (c) => c != 'unknown_data' && c.isNotEmpty)
                                 .toSet()
                                 .toList();
                             uniqueCategories.sort();
                             setState(() {
                               _songs = fetched;
-                              _availableCategories = ['All', ...uniqueCategories];
+                              _availableCategories = [
+                                'All',
+                                ...uniqueCategories
+                              ];
                               if (!_availableCategories
                                   .contains(_selectedCategory)) {
                                 _selectedCategory = 'All';
                               }
+
+                              // Sort alphabetically
+                              fetched.sort((a, b) {
+                                final aTitle = (a.englishTitle != null &&
+                                        a.englishTitle!.isNotEmpty)
+                                    ? a.englishTitle!
+                                    : a.title;
+                                final bTitle = (b.englishTitle != null &&
+                                        b.englishTitle!.isNotEmpty)
+                                    ? b.englishTitle!
+                                    : b.title;
+                                return aTitle
+                                    .toLowerCase()
+                                    .compareTo(bTitle.toLowerCase());
+                              });
+
+                              _songs = fetched;
                               _filterSongs();
                               _isLoading = false;
                             });

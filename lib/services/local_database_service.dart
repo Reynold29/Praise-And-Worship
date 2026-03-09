@@ -183,4 +183,44 @@ class LocalDatabaseService {
   Future<void> clearAllOtherSongs() async {
     await _deleteFile('other_data.json');
   }
+
+  // ─── Bulk / Periodic Sync ──────────────────────────────────────────────
+
+  /// Checks if a full sync is needed (every 3 days) and runs it if so.
+  Future<void> syncAllCategories({bool force = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    const lastFullSyncKey = 'last_full_sync_all';
+    final lastSyncMillis = prefs.getInt(lastFullSyncKey) ?? 0;
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+
+    // 3 days = 3 * 24 * 60 * 60 * 1000 = 259,200,000 ms
+    const threeDaysMs = 259200000;
+
+    if (force || (nowMillis - lastSyncMillis) > threeDaysMs) {
+      AppLogger.d('LocalDB', 'Starting periodic 3-day full sync...');
+      try {
+        await syncFromSupabase(forceFullResync: true);
+        await syncKannadaFromSupabase(forceFullResync: true);
+        await syncOtherFromSupabase(forceFullResync: true);
+        await prefs.setInt(lastFullSyncKey, nowMillis);
+        AppLogger.d('LocalDB', 'Periodic full sync completed.');
+      } catch (e) {
+        AppLogger.e('LocalDB', 'Periodic full sync failed', e);
+      }
+    } else {
+      AppLogger.d('LocalDB', 'Periodic sync not needed yet.');
+    }
+  }
+
+  /// Triggers a background sync for a specific category (called when favoriting a new song).
+  void triggerBackgroundSync(String category) {
+    AppLogger.d('LocalDB', 'Triggering background sync for: $category');
+    if (category.contains('kannada')) {
+      syncKannadaFromSupabase();
+    } else if (category.contains('english')) {
+      syncFromSupabase();
+    } else {
+      syncOtherFromSupabase();
+    }
+  }
 }

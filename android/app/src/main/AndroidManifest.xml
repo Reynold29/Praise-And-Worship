@@ -42,6 +42,16 @@
                     android:scheme="io.supabase.worshipcompanion"
                     android:host="login-callback" />
             </intent-filter>
+            <!-- QR Code Song Deep Linking -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="projects.reyziehomelab.com"
+                    android:pathPrefix="/worshipcompanion/song" />
+            </intent-filter>
 
 
         </activity>

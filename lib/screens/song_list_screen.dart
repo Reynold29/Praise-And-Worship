@@ -112,11 +112,19 @@ class _SongListScreenState extends State<SongListScreen> {
     List<Song> filtered = List.from(_songs);
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
-      filtered = filtered.where((song) {
-        return song.title.toLowerCase().contains(query) ||
-            (song.authorName?.toLowerCase().contains(query) ?? false) ||
-            song.lyrics.toLowerCase().contains(query);
-      }).toList();
+      filtered = _songs
+          .asMap()
+          .entries
+          .where((entry) {
+            final song = entry.value;
+            final indexStr = (entry.key + 1).toString();
+            return indexStr.contains(query) ||
+                song.title.toLowerCase().contains(query) ||
+                (song.englishTitle?.toLowerCase().contains(query) ?? false) ||
+                (song.authorName?.toLowerCase().contains(query) ?? false);
+          })
+          .map((e) => e.value)
+          .toList();
     }
     if (_selectedLetter != null && _selectedLetter!.isNotEmpty) {
       filtered = filtered.where((song) {
@@ -132,12 +140,20 @@ class _SongListScreenState extends State<SongListScreen> {
   Set<String> get _lettersWithSongs {
     final base = _searchQuery.isEmpty
         ? _songs
-        : _songs.where((s) {
-            final q = _searchQuery.toLowerCase();
-            return s.title.toLowerCase().contains(q) ||
-                (s.authorName?.toLowerCase().contains(q) ?? false) ||
-                s.lyrics.toLowerCase().contains(q);
-          }).toList();
+        : _songs
+            .asMap()
+            .entries
+            .where((entry) {
+              final s = entry.value;
+              final indexStr = (entry.key + 1).toString();
+              final q = _searchQuery.toLowerCase();
+              return indexStr.contains(q) ||
+                  s.title.toLowerCase().contains(q) ||
+                  (s.englishTitle?.toLowerCase().contains(q) ?? false) ||
+                  (s.authorName?.toLowerCase().contains(q) ?? false);
+            })
+            .map((e) => e.value)
+            .toList();
     return base
         .where((s) => s.title.isNotEmpty)
         .map((s) => s.title[0].toUpperCase())
@@ -155,6 +171,11 @@ class _SongListScreenState extends State<SongListScreen> {
       final fetchedSongs =
           await SupabaseService.instance.getSongsByCategory('english_data');
       if (!mounted) return;
+
+      // Sort alphabetically by title
+      fetchedSongs.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+
       setState(() {
         _songs = fetchedSongs;
         _filterSongs();
@@ -311,6 +332,11 @@ class _SongListScreenState extends State<SongListScreen> {
                     final fetched = await SupabaseService.instance
                         .getSongsByCategory('english_data');
                     if (!mounted) return;
+
+                    // Sort alphabetically by title
+                    fetched.sort((a, b) =>
+                        a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+
                     setState(() {
                       _songs = fetched;
                       _filterSongs();
@@ -457,8 +483,11 @@ class _SongListScreenState extends State<SongListScreen> {
                               itemBuilder: (context, index) {
                                 if (index >= _filteredSongs.length) return null;
                                 final song = _filteredSongs[index];
+                                final originalIndex = _songs.indexOf(song) + 1;
                                 return SongCardWidget(
-                                    song: song, fontSize: _fontSize);
+                                    song: song,
+                                    fontSize: _fontSize,
+                                    displayIndex: originalIndex);
                               },
                             ),
             ),
