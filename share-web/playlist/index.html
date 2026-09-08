@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Worship Companion" />
+  <link rel="manifest" href="../manifest.json" />
+  <title>Worship Companion — Playlist</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../shared.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js"></script>
+  <script src="../shared.js"></script>
+</head>
+<body>
+  <main class="page">
+    <div class="brand">Worship Companion</div>
+    <div id="content" class="status">Opening playlist…</div>
+  </main>
+  <div class="download-bar"><div class="download-inner" id="storeBar"></div></div>
+  <script>
+    const id = new URLSearchParams(location.search).get("id");
+    const content = document.getElementById("content");
+    storeButtons(document.getElementById("storeBar"));
+    tryOpenApp();
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    if (!id) {
+      content.className = "error";
+      content.textContent = "This link is missing a playlist id.";
+    } else {
+      const client = createClient();
+      let channels = [];
+
+      async function fetchSongsFor(entries) {
+        const byLang = { english: [], kannada: [], other: [] };
+        for (const row of entries) {
+          byLang[langForCategory(row.category)].push(row.song_id);
+        }
+        const songsById = {};
+        for (const [lang, ids] of Object.entries(byLang)) {
+          if (!ids.length) continue;
+          const { data } = await client
+            .from(tableForLang(lang))
+            .select("id,title,author_name,category")
+            .in("id", ids);
+          for (const song of data || []) {
+            songsById[String(song.id)] = { ...song, _lang: lang };
+          }
+        }
+        return entries.map((row) => {
+          const song = songsById[String(row.song_id)];
+          return {
+            title: song?.title || "Song unavailable",
+            author: song?.author_name || "",
+            href: song
+              ? `../lyrics/?l=${encodeURIComponent(song._lang)}&id=${encodeURIComponent(song.id)}`
+              : null,
+          };
+        });
+      }
+
+      async function load() {
+        const { data: playlist, error } = await client
+          .from("playlists")
+          .select("id,name,deleted")
+          .eq("id", id)
+          .eq("deleted", false)
+          .maybeSingle();
+        if (error || !playlist) {
+          content.className = "error";
+          content.textContent = "Playlist not found. Cloud playlists can be opened here after the owner signs in.";
+          return;
+        }
+        const { data: entries } = await client
+          .from("playlist_songs")
+          .select("song_id,category,added_at")
+          .eq("playlist_id", id)
+          .order("added_at", { ascending: true });
+        const songs = await fetchSongsFor(entries || []);
+        document.title = playlist.name + " — Worship Companion";
+        content.className = "";
+        content.innerHTML = `
+          <h1>${escapeHtml(playlist.name)}</h1>
+          <div class="meta">${songs.length} song${songs.length === 1 ? "" : "s"}</div>
+          <div class="list">
+            ${songs.map((s) => s.href
+              ? `<a class="row" href="${s.href}"><strong>${escapeHtml(s.title)}</strong><span>${escapeHtml(s.author)}</span></a>`
+              : `<div class="row"><strong>${escapeHtml(s.title)}</strong></div>`
+            ).join("")}
+          </div>
+        `;
+      }
+
+      const debouncedLoad = debounce(load, 400);
+
+      function startLive() {
+        channels = [
+          subscribeFiltered(client, "pl-" + id, "playlists", "id=eq." + id, debouncedLoad),
+          subscribeFiltered(client, "pls-" + id, "playlist_songs", "playlist_id=eq." + id, debouncedLoad),
+        ];
+      }
+
+      load();
+      startLive();
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          channels.forEach((ch) => client.removeChannel(ch));
+          channels = [];
+        } else {
+          load();
+          startLive();
+        }
+      });
+    }
+  </script>
+</body>
+</html>

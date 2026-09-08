@@ -1,5 +1,3 @@
-import '../models/song_model.dart';
-
 class SongUtils {
   /// Converts a song's lyrics and chords into the line-by-line format expected
   /// by SongDetailScreen. Replacing duplicated _convertSongToLines everywhere.
@@ -30,6 +28,19 @@ class SongUtils {
     }
 
     return lines;
+  }
+
+  static String languageLabel(String category) {
+    final c = category.trim().toLowerCase();
+    if (c.contains('kannada')) return 'Kannada';
+    if (c.contains('english')) return 'English';
+    return 'Other';
+  }
+
+  static String chipLabel(String category, String? genre) {
+    final g = genre?.trim();
+    if (g != null && g.isNotEmpty) return g;
+    return languageLabel(category);
   }
 
   /// Helper to parse a chord line into a list of chords with pre_spaces

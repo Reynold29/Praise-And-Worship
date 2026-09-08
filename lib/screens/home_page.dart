@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/widgets/sliding_cards.dart';
@@ -25,6 +25,65 @@ import 'package:worshipcompanion/screens/auth_screen.dart';
 import 'package:worshipcompanion/widgets/sync_dialog.dart';
 import 'package:worshipcompanion/utils/app_logger.dart';
 
+class _ExploreThumbs extends StatelessWidget {
+  const _ExploreThumbs();
+
+  static const _shots = [
+    'assets/screenshots/homescreen.png',
+    'assets/screenshots/english-songs.png',
+    'assets/screenshots/playlists.png',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 70,
+      height: 56,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (var i = 0; i < _shots.length; i++)
+            Positioned(
+              left: i * 13.0,
+              top: (2 - i) * 3.0,
+              child: Transform.rotate(
+                angle: (i - 1) * 0.08,
+                child: Container(
+                  width: 32,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      width: 1.25,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(5.5),
+                    child: Image.asset(
+                      _shots[i],
+                      fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
+                      cacheWidth: 96,
+                      gaplessPlayback: true,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -46,26 +105,25 @@ class _HomePageState extends State<HomePage> {
     // redirect comes back (the OAuth callback fires _onAuthStateChange
     // which writes to SharedPreferences before onLoginSuccess pops the sheet).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AuthProvider>().addListener(_onAuthChanged);
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      _wasLoggedIn = auth.isLoggedIn;
+      auth.addListener(_onAuthChanged);
     });
   }
 
   bool _wasLoggedIn = false;
+  bool _usernamePromptShown = false;
+
   void _onAuthChanged() {
     final auth = context.read<AuthProvider>();
-    if (auth.isLoggedIn && !_wasLoggedIn) {
+    if (auth.isLoggedIn) {
       _wasLoggedIn = true;
       _loadUsername();
-    } else if (!auth.isLoggedIn && _wasLoggedIn) {
+    } else if (_wasLoggedIn) {
       _wasLoggedIn = false;
-      // Immediately clear displayed profile data
-      if (mounted) {
-        setState(() {
-          _username = '';
-          _profileImagePath = null;
-          _googleAvatarUrl = null;
-        });
-      }
+      _usernamePromptShown = false;
+      _loadUsername();
     }
   }
 
@@ -79,19 +137,21 @@ class _HomePageState extends State<HomePage> {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? '';
     final imagePath = prefs.getString('profile_image_path');
-    final googleUrl = prefs.getString('google_avatar_url');
-    if (mounted) {
-      setState(() {
-        _username = username;
-        _profileImagePath = imagePath;
-        _googleAvatarUrl = googleUrl;
-      });
-    }
-
-    // If logged in but no username set, show mandatory username modal
     if (!mounted) return;
     final auth = context.read<AuthProvider>();
-    if (auth.isLoggedIn && username.isEmpty) {
+    // Never show a Google/network avatar while signed out, even if prefs
+    // have not been cleared yet (race with signOut).
+    final googleUrl =
+        auth.isLoggedIn ? prefs.getString('google_avatar_url') : null;
+    setState(() {
+      _username = username;
+      _profileImagePath = imagePath;
+      _googleAvatarUrl = googleUrl;
+    });
+
+    // If logged in but no username set, show mandatory username modal
+    if (auth.isLoggedIn && username.isEmpty && !_usernamePromptShown) {
+      _usernamePromptShown = true;
       await Future.delayed(const Duration(milliseconds: 600));
       if (mounted) _showUsernameSetupModal();
     }
@@ -321,8 +381,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final textTheme = Theme.of(context).textTheme;
     return Container(
       color: colorScheme.surface,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -342,20 +402,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _buildAvatar(
                       localPath: widget.profileImagePath,
                       googleUrl: widget.googleAvatarUrl,
-                      radius: 28.0,
-                      iconSize: 34,
+                      radius: 24.0,
+                      iconSize: 30,
                       colorScheme: colorScheme,
                     ),
                   ),
                 ),
-                const SizedBox(width: 18.0),
+                const SizedBox(width: 14.0),
                 Expanded(
                   child: RichText(
                     text: TextSpan(
                       children: [
                         TextSpan(
                           text: 'Hey, ${widget.username}  ',
-                          style: textTheme.headlineSmall?.copyWith(
+                          style: textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: colorScheme.onSurface,
                           ),
@@ -363,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         WidgetSpan(
                           child: Icon(
                             Icons.waving_hand_rounded,
-                            size: textTheme.headlineSmall?.fontSize ?? 26,
+                            size: textTheme.titleLarge?.fontSize ?? 22,
                             color: Colors.amber.shade700,
                           ),
                           alignment: PlaceholderAlignment.middle,
@@ -374,68 +434,77 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 20.0),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Card(
-                  elevation: 3,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  color: colorScheme.surfaceVariant.withOpacity(0.85),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () async {
-                      _performVibration();
-                      Navigator.push(
-                        context,
-                        snappyPageRoute(page: ExploreScreen()),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 22.0, vertical: 18.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Explore Your Personal',
-                            style: textTheme.titleMedium?.copyWith(
-                              color: colorScheme.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                              letterSpacing: 0.2,
+            const SizedBox(height: 22.0),
+            Material(
+              color: colorScheme.primaryContainer,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () {
+                  _performVibration();
+                  Navigator.push(
+                    context,
+                    snappyPageRoute(page: const ExploreScreen()),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'HOW TO USE',
+                              style: textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onPrimaryContainer,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.9,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6.0),
-                          Row(
-                            children: [
-                              Text(
-                                'Worship Companion',
-                                style: textTheme.displaySmall?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: colorScheme.onSurface,
-                                  fontSize: 28,
-                                ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Worship Companion',
+                              style: textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: colorScheme.onPrimaryContainer,
                               ),
-                              const SizedBox(width: 10.0),
-                              Icon(
-                                Icons.arrow_forward_ios_rounded,
-                                size: 22,
-                                color: colorScheme.primary,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Guides and screenshots for songs, chords, playlists, and more',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onPrimaryContainer
+                                    .withValues(alpha: 0.8),
+                                height: 1.25,
+                                fontSize: 12,
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 6),
+                      const _ExploreThumbs(),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 14,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-            const SizedBox(height: 18.0),
-            Row(
+            const SizedBox(height: 16.0),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6.0),
+              child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
@@ -454,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: colorScheme.primaryContainer.withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         child: TextButton.icon(
                           onPressed: () async {
@@ -477,21 +546,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                           icon: Icon(
                             Icons.search_rounded,
-                            size: 24,
+                            size: 20,
                             color: colorScheme.primary,
                           ),
                           label: Text(
                             'Search',
-                            style: textTheme.labelLarge?.copyWith(
+                            style: textTheme.labelMedium?.copyWith(
                               color: colorScheme.primary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
+                                horizontal: 12, vertical: 8),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(14),
                             ),
                             splashFactory: InkSparkle.splashFactory,
                           ),
@@ -502,7 +572,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 20.0),
+            ),
+            const SizedBox(height: 16.0),
             SlidingCardsView(onFavoriteToggled: _loadFavorites),
           ],
         ),
@@ -608,15 +679,26 @@ class _UserProfilePageState extends State<UserProfilePage> {
   void initState() {
     super.initState();
     _loadProfile();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AuthProvider>().addListener(_onAuthChanged);
+    });
+  }
+
+  void _onAuthChanged() {
+    if (mounted) _loadProfile();
   }
 
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final loggedIn = context.read<AuthProvider>().isLoggedIn;
     setState(() {
       _username = prefs.getString('username') ?? '';
       _fullname = prefs.getString('fullname') ?? '';
       _profileImagePath = prefs.getString('profile_image_path');
-      _googleAvatarUrl = prefs.getString('google_avatar_url');
+      _googleAvatarUrl =
+          loggedIn ? prefs.getString('google_avatar_url') : null;
       _usernameController.text = _username;
       _fullnameController.text = _fullname;
     });
@@ -624,6 +706,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   void dispose() {
+    try {
+      context.read<AuthProvider>().removeListener(_onAuthChanged);
+    } catch (_) {}
     _usernameController.dispose();
     _fullnameController.dispose();
     super.dispose();

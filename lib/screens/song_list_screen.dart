@@ -1,8 +1,9 @@
 import 'package:worshipcompanion/utils/app_logger.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
+import 'package:worshipcompanion/widgets/language_card_hero.dart';
 import 'package:vibration/vibration.dart';
 
 class SongListScreen extends StatefulWidget {
@@ -206,16 +207,31 @@ class _SongListScreenState extends State<SongListScreen> {
               Hero(
                 tag: widget.heroTag,
                 transitionOnUserGestures: true,
-                child: Container(
-                  height: 220,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage('assets/cards/${widget.cardImage}'),
-                      fit: BoxFit.cover,
-                    ),
+                createRectTween: LanguageCardHero.createRectTween,
+                placeholderBuilder: LanguageCardHero.placeholderBuilder,
+                flightShuttleBuilder:
+                    (context, animation, direction, fromHero, toHero) {
+                  return LanguageCardHero.flightShuttle(
+                    animation: animation,
+                    direction: direction,
+                    imageName: widget.cardImage,
+                    cacheWidth: LanguageCardHero.cacheWidthFor(context),
+                  );
+                },
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(
                         bottom: Radius.circular(32)),
+                    child: Image.asset(
+                      'assets/cards/${widget.cardImage}',
+                      height: 220,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      cacheWidth: LanguageCardHero.cacheWidthFor(context),
+                      gaplessPlayback: true,
+                      filterQuality: FilterQuality.medium,
+                    ),
                   ),
                 ),
               ),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/screens/add_manual_song_screen.dart'; // TODO: Create AddManualSongScreen
 import 'package:flutter/services.dart';
 import 'scan_song_screen.dart'; // Add this import for the new screen

@@ -87,9 +87,19 @@ class SupabaseService {
     }
   }
 
-  // You can add more methods here for other Supabase interactions:
-  // - getSongById(String id)
-  // - addSong(Song song)
-  // - updateSong(Song song)
-  // - deleteSong(String id)
+  Future<void> updateSong(
+      String table, String id, Map<String, dynamic> data) async {
+    final payload = Map<String, dynamic>.from(data)
+      ..removeWhere((key, value) => value == null && key != 'trans_lyrics');
+    payload['updated_at'] = DateTime.now().toUtc().toIso8601String();
+    try {
+      await _client.from(table).update(payload).eq('id', id);
+    } on PostgrestException catch (e) {
+      AppLogger.e('SupabaseService', 'updateSong failed: ${e.message}', e);
+      throw Exception('Failed to update song: ${e.message}');
+    } catch (e) {
+      AppLogger.e('SupabaseService', 'updateSong failed', e);
+      rethrow;
+    }
+  }
 }

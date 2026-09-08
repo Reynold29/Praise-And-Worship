@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/screens/language_song_list_screen.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:flutter/services.dart';
 import 'package:worshipcompanion/utils/app_logger.dart';
+import 'package:worshipcompanion/widgets/language_card_hero.dart';
 
 class OtherSongListScreen extends StatefulWidget {
   final String heroTag;
@@ -172,36 +173,60 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
               Hero(
                 tag: widget.heroTag,
                 transitionOnUserGestures: true,
-                child: Container(
-                  height: 220,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage('assets/cards/${widget.cardImage}'),
-                      fit: BoxFit.cover,
-                    ),
+                createRectTween: LanguageCardHero.createRectTween,
+                placeholderBuilder: LanguageCardHero.placeholderBuilder,
+                flightShuttleBuilder:
+                    (context, animation, direction, fromHero, toHero) {
+                  return LanguageCardHero.flightShuttle(
+                    animation: animation,
+                    direction: direction,
+                    imageName: widget.cardImage,
+                    cacheWidth: LanguageCardHero.cacheWidthFor(context),
+                  );
+                },
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: SizedBox(
+                    height: 220,
+                    width: double.infinity,
+                    child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(
                         bottom: Radius.circular(32)),
-                  ),
-                  child: const Align(
-                    alignment: Alignment.bottomLeft,
-                    child: Padding(
-                      padding: EdgeInsets.only(left: 20, bottom: 20),
-                      child: Text(
-                        'Other Languages',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          shadows: [
-                            Shadow(
-                              offset: Offset(0, 2),
-                              blurRadius: 4.0,
-                              color: Colors.black54,
-                            ),
-                          ],
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Image.asset(
+                            'assets/cards/${widget.cardImage}',
+                            fit: BoxFit.cover,
+                            cacheWidth:
+                                LanguageCardHero.cacheWidthFor(context),
+                            gaplessPlayback: true,
+                            filterQuality: FilterQuality.medium,
+                          ),
                         ),
-                      ),
+                        const Align(
+                          alignment: Alignment.bottomLeft,
+                          child: Padding(
+                            padding: EdgeInsets.only(left: 20, bottom: 20),
+                            child: Text(
+                              'Other Languages',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                shadows: [
+                                  Shadow(
+                                    offset: Offset(0, 2),
+                                    blurRadius: 4.0,
+                                    color: Colors.black54,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     ),
                   ),
                 ),

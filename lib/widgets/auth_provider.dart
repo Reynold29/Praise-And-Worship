@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
+import '../utils/app_logger.dart';
 import 'favorite_provider.dart';
+import 'playlist_provider.dart';
 
 /// Which action is currently in progress (for per-button loading indicators).
 enum AuthLoadingSource { none, google, apple, email, delete }
@@ -11,6 +13,7 @@ enum AuthLoadingSource { none, google, apple, email, delete }
 /// Also exposes logged-in user info to the widget tree.
 class AuthProvider with ChangeNotifier {
   final FavoriteProvider _favoriteProvider;
+  final PlaylistProvider _playlistProvider;
 
   User? _user;
   AuthLoadingSource _loadingSource = AuthLoadingSource.none;
@@ -19,7 +22,7 @@ class AuthProvider with ChangeNotifier {
   /// Optional callback invoked after a successful sign-in/up.
   VoidCallback? onLoginSuccess;
 
-  AuthProvider(this._favoriteProvider) {
+  AuthProvider(this._favoriteProvider, this._playlistProvider) {
     // Populate from cached session (handles cold-start when user was already
     // signed in from a previous run).
     _user = AuthService.instance.currentUser;
@@ -104,8 +107,12 @@ class AuthProvider with ChangeNotifier {
   Future<void> signOut() async {
     _setLoading(AuthLoadingSource.delete);
     try {
+      // Drop the Google/network avatar before the session is cleared so the
+      // UI never reloads it from prefs after notifyListeners.
+      await _clearGoogleAvatarPrefs();
       await AuthService.instance.signOut();
       await _favoriteProvider.switchToLocal();
+      await _playlistProvider.switchToLocal();
     } catch (e) {
       _setError(e.toString());
     } finally {
@@ -123,6 +130,7 @@ class AuthProvider with ChangeNotifier {
       }
       await AuthService.instance.signOut();
       await _favoriteProvider.switchToLocal();
+      await _playlistProvider.switchToLocal();
       // Clear all local profile data so the avatar / name vanish immediately
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('username');
@@ -146,24 +154,53 @@ class AuthProvider with ChangeNotifier {
   void _onAuthStateChange(AuthState state) async {
     final newUser = state.session?.user;
     final previousUser = _user;
-    _user = newUser;
-    AuthService.instance.invalidateCache();
+    final signedIn = newUser != null && previousUser == null;
+    final signedOut = newUser == null && previousUser != null;
 
-    if (newUser != null && previousUser == null) {
-      // Fresh sign-in — switch to cloud favourites
-      await _favoriteProvider.switchToCloud(newUser.id);
-
-      // Auto-populate profile from Google / Apple metadata on first login
-      await _syncProfileFromProvider(newUser);
-
-      // Fire the success callback so the auth screen can navigate away
-      onLoginSuccess?.call();
-    } else if (newUser == null && previousUser != null) {
-      // Sign-out
-      await _favoriteProvider.switchToLocal();
+    // Clear the Google avatar from disk *before* notifying, so listeners that
+    // reload prefs cannot resurrect the network photo after sign-out.
+    if (signedOut) {
+      await _clearGoogleAvatarPrefs();
     }
 
+    _user = newUser;
+    AuthService.instance.invalidateCache();
+    // Notify immediately so the auth screen can pop. Cloud sync must not
+    // block or swallow this — a hung/throwing sync previously left users
+    // on the sign-in screen even though the session already existed.
     notifyListeners();
+
+    if (signedIn) {
+      final user = newUser;
+      onLoginSuccess?.call();
+      try {
+        await _favoriteProvider.switchToCloud(user.id);
+        await _playlistProvider.switchToCloud(user.id);
+        await _syncProfileFromProvider(user);
+        // Profile metadata (Google avatar, name) is now in prefs.
+        notifyListeners();
+      } catch (e) {
+        AppLogger.e('Auth', 'Post-login sync failed', e);
+      }
+    } else if (signedOut) {
+      try {
+        await _favoriteProvider.switchToLocal();
+        await _playlistProvider.switchToLocal();
+      } catch (e) {
+        AppLogger.e('Auth', 'Post-logout local switch failed', e);
+      }
+    }
+  }
+
+  /// Removes the Google/network avatar only. A manually uploaded local
+  /// `profile_image_path` is left untouched.
+  Future<void> _clearGoogleAvatarPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('google_avatar_url');
+    } catch (e) {
+      AppLogger.e('Auth', 'Failed to clear Google avatar', e);
+    }
   }
 
   /// Reads provider metadata (Google: full_name, avatar_url) and saves to

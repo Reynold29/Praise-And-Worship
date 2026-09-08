@@ -1,6 +1,6 @@
-import 'package:worshipcompanion/utils/app_logger.dart';
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+
+import 'package:material_ui/material_ui.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:worshipcompanion/screens/settings_page.dart';
 import 'card_model.dart';
@@ -12,7 +12,9 @@ import 'package:worshipcompanion/screens/kannada_song_list_screen.dart';
 import 'package:worshipcompanion/screens/other_song_list_screen.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
 import 'package:worshipcompanion/screens/qr_scanner_screen.dart';
+import 'package:worshipcompanion/screens/playlist_list_screen.dart';
 import 'package:worshipcompanion/widgets/snappy_transitions.dart';
+import 'package:worshipcompanion/widgets/language_card_hero.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
 import 'package:worshipcompanion/widgets/app_config_provider.dart';
@@ -28,44 +30,50 @@ class SlidingCardsView extends StatefulWidget {
 }
 
 class _SlidingCardsViewState extends State<SlidingCardsView> {
-  late PageController pageController;
+  static const double _cardGap = 12;
+  static const double _viewportFraction = LanguageCardHero.viewportFraction;
+
+  late final PageController pageController;
   int _currentPage = 0;
+  bool _openingCard = false;
+  bool _didPrecache = false;
 
   @override
   void initState() {
     super.initState();
-    pageController = PageController(viewportFraction: 0.75);
-    pageController.addListener(_onPageChanged);
+    pageController = PageController(viewportFraction: _viewportFraction);
   }
 
   @override
   void dispose() {
-    pageController.removeListener(_onPageChanged);
     pageController.dispose();
     super.dispose();
   }
 
-  int _lastPage = 0;
-
-  void _onPageChanged() async {
-    final page = pageController.page ?? 0.0;
-    try {
-      final int currentPage = page.round();
-      if (_lastPage != currentPage) {
-        _lastPage = currentPage;
-        setState(() => _currentPage = currentPage);
-        HapticFeedback.selectionClick();
-      }
-    } catch (e) {
-      AppLogger.d('App', 'Vibration error: $e');
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didPrecache) return;
+    _didPrecache = true;
+    for (final card in demoCardData) {
+      precacheImage(AssetImage('assets/cards/${card.image}'), context);
     }
   }
 
+  void _onPageChanged(int index) {
+    if (_currentPage == index) return;
+    setState(() => _currentPage = index);
+    HapticFeedback.selectionClick();
+  }
+
   void _onArrowTap(bool isNext) {
-    int nextPage = isNext ? _currentPage + 1 : _currentPage - 1;
+    final nextPage = isNext ? _currentPage + 1 : _currentPage - 1;
     if (nextPage >= 0 && nextPage < demoCardData.length) {
-      pageController.animateToPage(nextPage,
-          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      pageController.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     }
   }
 
@@ -73,111 +81,83 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
     HapticFeedback.lightImpact();
   }
 
+  Future<void> _openCard(CardModel card) async {
+    if (card.onTap != null) {
+      card.onTap!();
+      return;
+    }
+    if (!mounted || _openingCard) return;
+    _openingCard = true;
+    try {
+      if (card.name == 'Kannada Songs') {
+        await Navigator.of(context).push(
+          snappyFadeRoute(
+            page: KannadaSongListScreen(
+              heroTag: card.heroTag,
+              cardImage: card.image,
+              onFavoriteToggled: widget.onFavoriteToggled,
+            ),
+          ),
+        );
+      } else if (card.name == 'Other Languages') {
+        await Navigator.of(context).push(
+          snappyFadeRoute(
+            page: OtherSongListScreen(
+              heroTag: card.heroTag,
+              cardImage: card.image,
+            ),
+          ),
+        );
+      } else {
+        await Navigator.of(context).push(
+          snappyFadeRoute(
+            page: SongListScreen(
+              heroTag: card.heroTag,
+              cardImage: card.image,
+              onFavoriteToggled: widget.onFavoriteToggled,
+            ),
+          ),
+        );
+      }
+    } finally {
+      _openingCard = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Stack(
+    return Column(
       children: [
-        Column(
-          children: [
-            // ── Sliding cards ─────────────────────────────────────────────
-            SizedBox(
-              height: MediaQuery.of(context).size.height * 0.32,
-              child: PageView.builder(
-                clipBehavior: Clip.none,
-                controller: pageController,
-                itemCount: demoCardData.length,
-                padEnds: false,
-                itemBuilder: (context, index) {
-                  return AnimatedBuilder(
-                    animation: pageController,
-                    builder: (context, child) {
-                      double pageOffset = 0;
-                      if (pageController.position.haveDimensions) {
-                        pageOffset = pageController.page! - index;
-                      }
-                      // Gaussian curve — peaks when adjacent card is halfway
-                      // into view, creating the sweet 'push-away' parallax.
-                      final double gauss = math
-                          .exp(-(math.pow((pageOffset.abs() - 0.5), 2) / 0.08));
-
-                      return Transform.translate(
-                        // Only the gauss part (no constant offset) so cards
-                        // stay evenly spaced in the viewport.
-                        offset: Offset(-32 * gauss * pageOffset.sign, 0),
-                        child: GestureDetector(
-                          onTap: () async {
-                            final card = demoCardData[index];
-                            if (card.onTap != null) {
-                              card.onTap!();
-                            } else if (card.name == "Kannada Songs") {
-                              await Navigator.of(context).push(
-                                snappyFadeRoute(
-                                  page: KannadaSongListScreen(
-                                      heroTag: card.heroTag,
-                                      cardImage: card.image,
-                                      onFavoriteToggled:
-                                          widget.onFavoriteToggled),
-                                ),
-                              );
-                            } else if (card.name == "Other Languages") {
-                              await Navigator.of(context).push(
-                                snappyFadeRoute(
-                                  page: OtherSongListScreen(
-                                      heroTag: card.heroTag,
-                                      cardImage: card.image),
-                                ),
-                              );
-                            } else {
-                              await Navigator.of(context).push(
-                                snappyFadeRoute(
-                                  page: SongListScreen(
-                                      heroTag: card.heroTag,
-                                      cardImage: card.image,
-                                      onFavoriteToggled:
-                                          widget.onFavoriteToggled),
-                                ),
-                              );
-                            }
-                          },
-                          child: Hero(
-                            tag: demoCardData[index].heroTag,
-                            child: Container(
-                              margin: const EdgeInsets.only(
-                                  left: 6, right: 6, bottom: 10),
-                              decoration: BoxDecoration(
-                                color: Colors.transparent,
-                                borderRadius: BorderRadius.circular(32),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: colorScheme.shadow.withOpacity(0.1),
-                                    offset: const Offset(8, 20),
-                                    blurRadius: 24,
-                                  ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(32),
-                                child: Image.asset(
-                                  'assets/cards/${demoCardData[index].image}',
-                                  alignment: Alignment(
-                                      pageOffset.clamp(-1.0, 1.0) * -0.5, 0),
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+        SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.36,
+          child: PageView.builder(
+            controller: pageController,
+            itemCount: demoCardData.length,
+            padEnds: true,
+            clipBehavior: Clip.none,
+            allowImplicitScrolling: true,
+            physics: const BouncingScrollPhysics(
+              parent: PageScrollPhysics(),
             ),
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, index) {
+              final card = demoCardData[index];
+              return _DiscoverCard(
+                card: card,
+                index: index,
+                pageController: pageController,
+                gap: _cardGap,
+                shadowColor: colorScheme.shadow.withValues(alpha: 0.12),
+                onTap: () => _openCard(card),
+              );
+            },
+          ),
+        ),
 
             // ── Page indicator + arrows ───────────────────────────────────
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Row(
               children: [
                 if (_currentPage > 0)
@@ -189,11 +169,12 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                         _onArrowTap(false);
                       },
                       icon: Icon(Icons.arrow_back_ios_new_rounded,
-                          color: colorScheme.onPrimaryContainer),
+                          color: colorScheme.onPrimaryContainer, size: 16),
                       style: IconButton.styleFrom(
                         shape: const CircleBorder(),
                         backgroundColor: colorScheme.primaryContainer,
-                        fixedSize: const Size(48, 48),
+                        fixedSize: const Size(40, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         splashFactory: InkSparkle.splashFactory,
                       ),
                     ),
@@ -206,9 +187,9 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                       controller: pageController,
                       count: demoCardData.length,
                       effect: ExpandingDotsEffect(
-                        dotWidth: 20,
-                        dotHeight: 5,
-                        spacing: 8,
+                        dotWidth: 16,
+                        dotHeight: 4,
+                        spacing: 6,
                         activeDotColor: colorScheme.primary,
                         dotColor: colorScheme.outline,
                         expansionFactor: 1.5,
@@ -225,11 +206,12 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                         _onArrowTap(true);
                       },
                       icon: Icon(Icons.arrow_forward_ios_rounded,
-                          color: colorScheme.onPrimaryContainer),
+                          color: colorScheme.onPrimaryContainer, size: 16),
                       style: IconButton.styleFrom(
                         shape: const CircleBorder(),
                         backgroundColor: colorScheme.primaryContainer,
-                        fixedSize: const Size(48, 48),
+                        fixedSize: const Size(40, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         splashFactory: InkSparkle.splashFactory,
                       ),
                     ),
@@ -243,19 +225,19 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 Padding(
-                  padding: const EdgeInsets.only(left: 16.0),
+                  padding: const EdgeInsets.only(left: 8.0),
                   child: Text(
                     'More Options',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
                       color: colorScheme.onSurface,
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 // Horizontal scroll → never overflows regardless of screen width
                 Align(
                   alignment: Alignment.centerLeft,
@@ -292,6 +274,21 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                   context,
                                   snappyPageRoute(
                                       page: const AddSongOptionsScreen()));
+                            }
+                          },
+                        ),
+                        _NavItem(
+                          icon: Icons.playlist_play_rounded,
+                          label: 'Playlists',
+                          color: colorScheme.primaryContainer,
+                          iconColor: colorScheme.onPrimaryContainer,
+                          onTap: () {
+                            _vibrate();
+                            if (context.mounted) {
+                              Navigator.push(
+                                  context,
+                                  snappyPageRoute(
+                                      page: const PlaylistListScreen()));
                             }
                           },
                         ),
@@ -378,8 +375,98 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
               ],
             ),
           ],
-        ),
-      ],
+        );
+  }
+}
+
+class _DiscoverCard extends StatelessWidget {
+  const _DiscoverCard({
+    required this.card,
+    required this.index,
+    required this.pageController,
+    required this.gap,
+    required this.shadowColor,
+    required this.onTap,
+  });
+
+  final CardModel card;
+  final int index;
+  final PageController pageController;
+  final double gap;
+  final Color shadowColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: pageController,
+      builder: (context, _) {
+        var pageOffset = 0.0;
+        if (pageController.hasClients &&
+            pageController.position.haveDimensions) {
+          pageOffset = (pageController.page ?? index.toDouble()) - index;
+        }
+        // Gaussian curve — peaks when the adjacent card is halfway into
+        // view, creating the push-away parallax between cards.
+        final gauss =
+            math.exp(-(math.pow((pageOffset.abs() - 0.5), 2) / 0.08));
+
+        return Transform.translate(
+          offset: Offset(-32 * gauss * pageOffset.sign, 0),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(gap / 2, 4, gap / 2, 16),
+            child: GestureDetector(
+              onTap: onTap,
+              child: Hero(
+                tag: card.heroTag,
+                transitionOnUserGestures: true,
+                createRectTween: LanguageCardHero.createRectTween,
+                placeholderBuilder: LanguageCardHero.placeholderBuilder,
+                flightShuttleBuilder:
+                    (context, animation, direction, fromHero, toHero) {
+                  return LanguageCardHero.flightShuttle(
+                    animation: animation,
+                    direction: direction,
+                    imageName: card.image,
+                    cacheWidth: LanguageCardHero.cacheWidthFor(context),
+                  );
+                },
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(32),
+                      boxShadow: [
+                        BoxShadow(
+                          color: shadowColor,
+                          offset: const Offset(8, 20),
+                          blurRadius: 24,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(32),
+                      child: Image.asset(
+                        'assets/cards/${card.image}',
+                        fit: BoxFit.cover,
+                        alignment: Alignment(
+                          pageOffset.clamp(-1.0, 1.0) * -0.5,
+                          0,
+                        ),
+                        width: double.infinity,
+                        height: double.infinity,
+                        cacheWidth: LanguageCardHero.cacheWidthFor(context),
+                        filterQuality: FilterQuality.medium,
+                        gaplessPlayback: true,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -405,7 +492,7 @@ class _NavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
         children: [
           Material(
@@ -416,14 +503,14 @@ class _NavItem extends StatelessWidget {
               onTap: onTap,
               customBorder: const CircleBorder(),
               child: SizedBox(
-                width: 50,
-                height: 50,
-                child: Icon(icon, color: iconColor, size: 24),
+                width: 46,
+                height: 46,
+                child: Icon(icon, color: iconColor, size: 22),
               ),
             ),
           ),
-          const SizedBox(height: 5),
-          Text(label, style: TextStyle(fontSize: 12, color: cs.onSurface)),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: cs.onSurface)),
         ],
       ),
     );
@@ -467,7 +554,7 @@ class _LoginNavItemState extends State<_LoginNavItem>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
         children: [
           AnimatedBuilder(
@@ -483,8 +570,8 @@ class _LoginNavItemState extends State<_LoginNavItem>
                 AnimatedBuilder(
                   animation: _controller,
                   builder: (_, __) => Container(
-                    width: 58,
-                    height: 58,
+                    width: 54,
+                    height: 54,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
@@ -503,21 +590,21 @@ class _LoginNavItemState extends State<_LoginNavItem>
                     onTap: widget.onTap,
                     customBorder: const CircleBorder(),
                     child: SizedBox(
-                      width: 50,
-                      height: 50,
+                      width: 46,
+                      height: 46,
                       child: Icon(Icons.login_rounded,
-                          color: cs.onPrimary, size: 24),
+                          color: cs.onPrimary, size: 22),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 4),
           Text(
             'Login',
             style: TextStyle(
-                fontSize: 12, color: cs.primary, fontWeight: FontWeight.w600),
+                fontSize: 11, color: cs.primary, fontWeight: FontWeight.w600),
           ),
         ],
       ),

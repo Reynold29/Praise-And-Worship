@@ -62,7 +62,7 @@ class AppConfigProvider extends ChangeNotifier {
           .where((e) => e.isNotEmpty)
           .toList();
       if (_whitelistedQrDomains.isEmpty) {
-        _whitelistedQrDomains = ['worshipcompanion.app'];
+        _whitelistedQrDomains = ['projects.reyziehomelab.com'];
       }
 
       notifyListeners();
@@ -86,7 +86,8 @@ class AppConfigProvider extends ChangeNotifier {
         .where((e) => e.isNotEmpty)
         .toList();
 
-    _qrBaseUrl = config['qr_base_url'] ?? 'https://worshipcompanion.app';
+    _qrBaseUrl = config['qr_base_url'] ??
+        'https://projects.reyziehomelab.com/worshipcompanion';
     final domainsRaw = config['whitelisted_qr_domains'] ?? '';
     _whitelistedQrDomains = domainsRaw
         .split(',')
@@ -94,7 +95,7 @@ class AppConfigProvider extends ChangeNotifier {
         .where((e) => e.isNotEmpty)
         .toList();
     if (_whitelistedQrDomains.isEmpty) {
-      _whitelistedQrDomains = ['worshipcompanion.app'];
+      _whitelistedQrDomains = ['projects.reyziehomelab.com'];
     }
 
     _loaded = true;

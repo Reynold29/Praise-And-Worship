@@ -174,6 +174,61 @@ class LocalDatabaseService {
     return _fetchSongsFromFile('other_data.json');
   }
 
+  Future<void> updateLocalSong(
+      String table, Map<String, dynamic> updated) async {
+    final fileName = table.endsWith('.json') ? table : '$table.json';
+    final path = await _getFilePath(fileName);
+    final file = File(path);
+    if (!await file.exists()) {
+      throw Exception('Local song cache is missing ($fileName).');
+    }
+
+    final List<dynamic> jsonList = jsonDecode(await file.readAsString());
+    final songId = updated['id'].toString();
+    var found = false;
+    for (int i = 0; i < jsonList.length; i++) {
+      final row = Map<String, dynamic>.from(jsonList[i] as Map);
+      if (row['id'].toString() == songId) {
+        row.addAll(Map<String, dynamic>.from(updated)..remove('id'));
+        row['updated_at'] = DateTime.now().toUtc().toIso8601String();
+        jsonList[i] = row;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      throw Exception('Song $songId was not found in local cache.');
+    }
+    await file.writeAsString(jsonEncode(jsonList));
+  }
+
+  Future<Map<String, dynamic>?> getSongById(String table, String id) async {
+    final fileName = table.endsWith('.json') ? table : '$table.json';
+    final songs = await _fetchSongsFromFile(fileName);
+    try {
+      final song = songs.firstWhere((s) => s.id.toString() == id);
+      return song.toJson();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Song?> fetchSongById(String lang, String id) async {
+    List<Song> songs;
+    if (lang == 'english' || lang == 'english_data') {
+      songs = await fetchAllSongs();
+    } else if (lang == 'kannada' || lang == 'kannada_data') {
+      songs = await fetchAllKannadaSongs();
+    } else {
+      songs = await fetchAllOtherSongs();
+    }
+    try {
+      return songs.firstWhere((s) => s.id.toString() == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> syncOtherFromSupabase(
       {bool forceFullResync = false, bool throwOnError = false}) async {
     await _syncCategory('other_data', 'other_data.json',

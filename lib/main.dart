@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:flutter/material.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +19,7 @@ import 'package:inditrans/inditrans.dart' as inditrans;
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
 import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'package:worshipcompanion/widgets/playlist_provider.dart';
 import 'utils/app_logger.dart';
 import 'package:app_links/app_links.dart';
 import 'services/qr_router_service.dart';
@@ -84,6 +86,7 @@ Future<void> main() async {
 
   // Initialize FavoriteProvider and load favorites
   final favoriteProvider = FavoriteProvider();
+  final playlistProvider = PlaylistProvider();
 
   // Restore cloud session if user was already logged in
   if (supabaseInitialized) {
@@ -94,6 +97,9 @@ Future<void> main() async {
         favoriteProvider.switchToCloud(existingUser.id).catchError((e) {
           AppLogger.e('App', 'Failed to restore cloud favourites', e);
         });
+        playlistProvider.switchToCloud(existingUser.id).catchError((e) {
+          AppLogger.e('App', 'Failed to restore cloud playlists', e);
+        });
       }
     } catch (e) {
       AppLogger.e('App', 'Session restore error', e);
@@ -101,7 +107,7 @@ Future<void> main() async {
   }
 
   // Create AuthProvider (depends on favoriteProvider)
-  final authProvider = AuthProvider(favoriteProvider);
+  final authProvider = AuthProvider(favoriteProvider, playlistProvider);
 
   // Fetch remote app config (social_login_enabled, etc.)
   // This is non-blocking in that we await it before runApp but it has a
@@ -150,6 +156,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider.value(value: themeProvider),
         ChangeNotifierProvider.value(value: favoriteProvider),
+        ChangeNotifierProvider.value(value: playlistProvider),
         ChangeNotifierProvider.value(value: appConfigProvider),
         ChangeNotifierProvider.value(value: authProvider),
       ],
@@ -233,7 +240,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text;
       if (text != null &&
-          text.contains('projects.reyziehomelab.com/worshipcompanion/song')) {
+          (text.contains('projects.reyziehomelab.com/worshipcompanion/song') ||
+              text.contains(
+                  'projects.reyziehomelab.com/worshipcompanion/lyrics') ||
+              text.contains(
+                  'projects.reyziehomelab.com/worshipcompanion/playlist'))) {
         AppLogger.d('App', 'Found deferred deep link in clipboard: $text');
         // Wait for Navigator
         _handleLink(text);
@@ -246,8 +257,22 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
+  bool _isAuthCallback(Uri uri) {
+    return uri.scheme == 'io.supabase.worshipcompanion' ||
+        uri.host.toLowerCase() == 'login-callback';
+  }
+
   Future<void> _handleLink(String url) async {
     AppLogger.d('App', 'Processing deep link: $url');
+    final uri = Uri.tryParse(url);
+    // OAuth redirects must not go through the QR router (that showed
+    // "Invalid QR Code" and never completed sign-in). supabase_flutter
+    // exchanges the PKCE code from its own app_links subscription.
+    if (uri != null && _isAuthCallback(uri)) {
+      AppLogger.d('App', 'OAuth callback — skipping QR router');
+      return;
+    }
+
     // Wait for Navigator to be ready if needed
     int retries = 0;
     while (navigatorKey.currentContext == null && retries < 15) {
@@ -272,72 +297,122 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    const String appFontFamily = 'ProductSans'; // Define the font family name
+    const String appFontFamily = 'ProductSans';
 
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamicFromBuilder,
           ColorScheme? darkDynamicFromBuilder) {
         ColorScheme lightSchemeToUse;
         ColorScheme darkSchemeToUse;
+        final variant = themeProvider.isExpressive
+            ? DynamicSchemeVariant.expressive
+            : DynamicSchemeVariant.tonalSpot;
 
-        if (lightDynamicFromBuilder != null && darkDynamicFromBuilder != null) {
-          // Dynamic colors are available, use them
+        if (!themeProvider.isExpressive &&
+            lightDynamicFromBuilder != null &&
+            darkDynamicFromBuilder != null) {
           lightSchemeToUse = lightDynamicFromBuilder;
           darkSchemeToUse = darkDynamicFromBuilder;
-
-          // If a custom seed color is also set, let it override dynamic colors
-          if (themeProvider.customSeedColor != null &&
-              themeProvider.customSeedColor != Colors.transparent) {
-            lightSchemeToUse = ColorScheme.fromSeed(
-                seedColor: themeProvider.customSeedColor!,
-                brightness: Brightness.light);
-            darkSchemeToUse = ColorScheme.fromSeed(
-                seedColor: themeProvider.customSeedColor!,
-                brightness: Brightness.dark);
-          }
-        } else if (themeProvider.customSeedColor != null &&
-            themeProvider.customSeedColor != Colors.transparent) {
-          // Dynamic colors not yet available, but a custom seed is set
-          lightSchemeToUse = themeProvider
-              .lightColorScheme; // Already generated from custom seed
-          darkSchemeToUse = themeProvider
-              .darkColorScheme; // Already generated from custom seed
+        } else if (themeProvider.isExpressive) {
+          lightSchemeToUse = themeProvider.lightColorScheme;
+          darkSchemeToUse = themeProvider.darkColorScheme;
         } else {
-          // No dynamic and no custom seed, use ThemeProvider's default
-          // This ensures a valid theme is used while dynamic colors load.
           lightSchemeToUse = ColorScheme.fromSeed(
-              seedColor: themeProvider.defaultSeedColor,
-              brightness: Brightness.light);
+            seedColor: themeProvider.defaultSeedColor,
+            brightness: Brightness.light,
+            dynamicSchemeVariant: variant,
+          );
           darkSchemeToUse = ColorScheme.fromSeed(
-              seedColor: themeProvider.defaultSeedColor,
-              brightness: Brightness.dark);
-        }
-
-        // Apply AMOLED black if needed (only for dark theme)
-        if (themeProvider.isDarkMode && themeProvider.isAmoledBlack) {
-          darkSchemeToUse = darkSchemeToUse.copyWith(
-            background: Colors.black,
-            surface: Colors.black,
+            seedColor: themeProvider.defaultSeedColor,
+            brightness: Brightness.dark,
+            dynamicSchemeVariant: variant,
           );
         }
 
-        return MaterialApp(
+        if (themeProvider.isAmoledBlack) {
+          darkSchemeToUse = darkSchemeToUse.copyWith(
+            surface: Colors.black,
+            surfaceContainerLowest: Colors.black,
+          );
+        }
+
+        ThemeData themed(ColorScheme scheme) {
+          return ThemeData(
+            useMaterial3: true,
+            colorScheme: scheme,
+            fontFamily: appFontFamily,
+            visualDensity: VisualDensity.adaptivePlatformDensity,
+            cardTheme: CardThemeData(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+            filledButtonTheme: FilledButtonThemeData(
+              style: FilledButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            floatingActionButtonTheme: FloatingActionButtonThemeData(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            dialogTheme: DialogThemeData(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+              ),
+            ),
+            snackBarTheme: SnackBarThemeData(
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          );
+        }
+
+        final lightTheme = themed(lightSchemeToUse);
+        final darkTheme = themed(darkSchemeToUse);
+        final m3eData = themeProvider.isDarkMode
+            ? M3EThemeData.fromMaterial(darkTheme)
+            : M3EThemeData.fromMaterial(lightTheme);
+
+        Widget home = FutureBuilder<bool>(
+          future: SharedPreferences.getInstance()
+              .then((prefs) => prefs.getBool('onboarding_complete') ?? false),
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 400),
+                reverseDuration: const Duration(milliseconds: 300),
+                transitionBuilder: (child, animation) =>
+                    snappySwitcherTransition(animation, child),
+                child: snapshot.data!
+                    ? const HomePage()
+                    : const OnboardingScreen(),
+              );
+            }
+            return const Center(child: CircularProgressIndicator());
+          },
+        );
+
+        return M3EMaterialApp(
           navigatorKey: navigatorKey,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: lightSchemeToUse,
-            fontFamily: appFontFamily, // Apply font family to light theme
-            visualDensity: VisualDensity.adaptivePlatformDensity,
-          ),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorScheme: darkSchemeToUse,
-            fontFamily: appFontFamily, // Apply font family to dark theme
-            visualDensity: VisualDensity.adaptivePlatformDensity,
-          ),
-          themeMode:
-              themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          builder: (context, child) {
+          title: 'Worship Companion',
+          debugShowCheckedModeBanner: false,
+          fontFamily: appFontFamily,
+          data: m3eData,
+          theme: lightTheme,
+          darkTheme: darkTheme,
+          autoTheming: false,
+          dynamicColoring: !themeProvider.isExpressive,
+          initialTheme: themeProvider.isDarkMode
+              ? Brightness.dark
+              : Brightness.light,
+          appBuilder: (context, child) {
             final mq = MediaQuery.of(context);
             final width = mq.size.width;
             double baseScale = 1.0;
@@ -350,34 +425,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             } else if (width < 440) {
               baseScale = 0.98;
             }
-            final userScale = mq.textScaleFactor;
+            final userScale = mq.textScaler.scale(1);
             final combinedScale = (userScale * baseScale).clamp(0.85, 1.15);
             return MediaQuery(
-              data: mq.copyWith(textScaleFactor: combinedScale),
-              child: child!,
+              data: mq.copyWith(textScaler: TextScaler.linear(combinedScale)),
+              child: child ?? const SizedBox.shrink(),
             );
           },
-          home: FutureBuilder<bool>(
-            future: SharedPreferences.getInstance()
-                .then((prefs) => prefs.getBool('onboarding_complete') ?? false),
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  reverseDuration: const Duration(milliseconds: 300),
-                  transitionBuilder: (child, animation) =>
-                      snappySwitcherTransition(animation, child),
-                  child: snapshot.data!
-                      ? const HomePage()
-                      : const OnboardingScreen(),
-                );
-              } else {
-                return const CircularProgressIndicator();
-              }
-            },
-          ),
+          home: home,
         );
       },
     );
   }
 }
+

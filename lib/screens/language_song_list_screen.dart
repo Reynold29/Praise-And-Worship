@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
 import 'package:vibration/vibration.dart';

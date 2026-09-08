@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:worshipcompanion/widgets/theme_provider.dart';
@@ -208,8 +208,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _SettingsTile(
               icon: Icons.palette_outlined,
               iconColor: colorScheme.tertiary,
-              title: 'Custom Seed Color',
-              subtitle: 'Pick your own accent color',
+              title: 'Material Expressive',
+              subtitle: 'Custom seed with Material 3 Expressive palettes',
               trailing: Radio<AppThemeMode>(
                 value: AppThemeMode.materialExpressive,
                 groupValue: _selectedTheme,

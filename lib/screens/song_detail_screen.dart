@@ -1,13 +1,16 @@
-import 'package:flutter/material.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
 import 'package:worshipcompanion/widgets/favorite_provider.dart';
 import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'package:worshipcompanion/widgets/playlist_provider.dart';
 import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import '../services/qr_router_service.dart';
+import 'package:worshipcompanion/widgets/share_qr_dialog.dart';
+import 'package:worshipcompanion/widgets/song_card_widget.dart';
+import 'package:worshipcompanion/utils/song_utils.dart';
 
 class SongDetailScreen extends StatefulWidget {
   final Map<String, dynamic>
@@ -27,6 +30,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   double _fontSize = 16;
   bool _showTransliteration = false;
   bool _showEnglishTitle = true;
+  bool _hideActions = false;
 
   // YouTube inline player state
   YoutubePlayerController? _ytController;
@@ -62,8 +66,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     return YoutubePlayerController.convertUrlToId(_youtubeLink!);
   }
 
-  static const double _kControlsButtonHeight = 40.0;
-
   @override
   void initState() {
     super.initState();
@@ -79,132 +81,34 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     super.dispose();
   }
 
-  void _showQRShareDialog() async {
+  void _showQRShareDialog() {
     _performVibration();
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     final config = Provider.of<AppConfigProvider>(context, listen: false);
+    final category = (widget.tabData['category'] ?? '').toString();
+    final songId = widget.tabData['id']?.toString() ?? '';
 
-    showDialog(
-      context: context,
-      builder: (ctx) =>
-          Center(child: CircularProgressIndicator(color: colorScheme.primary)),
-    );
-
-    try {
-      final category = widget.tabData['category'] as String;
-      final songId = widget.tabData['id'].toString();
-
-      String langCode = 'other';
-      if (category == 'english' || category == 'english_data') {
-        langCode = 'english';
-      } else if (category == 'kannada' || category == 'kannada_data') {
-        langCode = 'kannada';
-      }
-
-      final index =
-          await QRRouterService.instance.getSongIndex(langCode, songId);
-
-      if (context.mounted) Navigator.of(context).pop(); // hide loading
-
-      if (index == 0) throw Exception('Song not found in local index');
-
-      final qrUrl = '${config.qrBaseUrl}/song?l=$langCode&i=$index';
-
-      if (!context.mounted) return;
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: colorScheme.surface,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          contentPadding: const EdgeInsets.all(24),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Share Song',
-                  style: textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text(
-                'Anyone can scan this to open the song',
-                style: textTheme.bodySmall
-                    ?.copyWith(color: colorScheme.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colorScheme.shadow.withOpacity(0.1),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: QrImageView(
-                  data: qrUrl,
-                  version: QrVersions.auto,
-                  size: 200.0,
-                  eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.circle,
-                    color: Color(0xFF0038A8), // Dark Blue
-                  ),
-                  dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.circle,
-                    color: Color(0xFF0038A8), // Dark Blue
-                  ),
-                  embeddedImage: const AssetImage('assets/icons/app_logo.png'),
-                  embeddedImageStyle: const QrEmbeddedImageStyle(
-                    size: Size(44, 44),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                _title,
-                style: textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-                textAlign: TextAlign.center,
-              ),
-              if (_artistName.isNotEmpty)
-                Text(
-                  _artistName,
-                  style: textTheme.bodySmall
-                      ?.copyWith(color: colorScheme.onSurfaceVariant),
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.check_rounded),
-                  label: const Text('Done'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+    if (songId.isEmpty || songId == 'null') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This song has no id to share.')),
       );
-    } catch (e) {
-      if (context.mounted) {
-        Navigator.of(context).pop(); // hide loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error generating QR: $e')),
-        );
-      }
+      return;
     }
+
+    String langCode = 'other';
+    if (category == 'english' || category == 'english_data') {
+      langCode = 'english';
+    } else if (category == 'kannada' || category == 'kannada_data') {
+      langCode = 'kannada';
+    }
+
+    showShareQrDialog(
+      context: context,
+      heading: 'Share Song',
+      subtitle: 'Anyone can scan this to open the lyrics',
+      qrUrl: '${config.qrBaseUrl}/lyrics?l=$langCode&id=$songId',
+      caption: _title,
+      detail: _artistName,
+    );
   }
 
   void _closeYoutubePlayer() {
@@ -415,61 +319,59 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _title,
-          style: textTheme.headlineSmall?.copyWith(
-              color: colorScheme.onSurface, fontWeight: FontWeight.w600),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
         backgroundColor: colorScheme.surface,
-        elevation: 1,
+        elevation: 0,
+        scrolledUnderElevation: 1,
+        toolbarHeight: 64,
+        clipBehavior: Clip.none,
         iconTheme: IconThemeData(color: colorScheme.onSurface),
         actions: [
-          IconButton(
-            icon: Icon(Icons.qr_code_2_rounded,
-                color: colorScheme.onSurfaceVariant),
-            tooltip: 'Share via QR',
-            onPressed: _showQRShareDialog,
-          ),
-          IconButton(
-            icon: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
-              switchInCurve: Curves.elasticOut,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, animation) {
-                // elasticOut overshoots past 1.0 naturally — that IS the bounce.
-                // Never use TweenSequence here; it asserts t ∈ [0,1] and crashes.
-                final scale =
-                    Tween<double>(begin: 0.5, end: 1.0).animate(animation);
-                return ScaleTransition(scale: scale, child: child);
-              },
-              child: Icon(
-                isFavorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
-                key: ValueKey(isFavorite),
-                color: isFavorite
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: SizedBox(
+                height: 32,
+                child: M3EButtonGroup(
+                  type: M3EButtonGroupType.connected,
+                  shape: M3EButtonShape.round,
+                  size: M3EButtonSize.xs,
+                  style: M3EButtonStyle.tonal,
+                  density: M3EButtonGroupDensity.compact,
+                  neighborSquish: true,
+                  overflow: M3EButtonGroupOverflow.scroll,
+                  haptic: M3EHapticFeedback.light,
+                  decoration: _groupDecoration,
+                  selectedIndices: {
+                    if (isFavorite) 1,
+                  },
+                  onSelectedIndicesChanged: (indices) {
+                    if (indices.contains(0)) {
+                      _showQRShareDialog();
+                    }
+                    final wantFavorite = indices.contains(1);
+                    if (wantFavorite != isFavorite) {
+                      _toggleFavorite(
+                        favoriteProvider,
+                        songCategory,
+                        songId,
+                        isFavorite,
+                      );
+                    }
+                  },
+                  actions: const [
+                    M3EButtonGroupAction(
+                      icon: Icon(Icons.qr_code_2_rounded),
+                      label: Text('Share Song'),
+                    ),
+                    M3EButtonGroupAction(
+                      icon: Icon(Icons.favorite_border_rounded),
+                      checkedIcon: Icon(Icons.favorite_rounded),
+                      label: Text('Favorite'),
+                    ),
+                  ],
+                ),
               ),
             ),
-            tooltip: isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-            onPressed: () {
-              _performVibration();
-              favoriteProvider.toggleFavorite(songCategory, songId);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(isFavorite
-                      ? 'Removed from favorites'
-                      : 'Added to favorites'),
-                  duration: const Duration(seconds: 1),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              );
-            },
           ),
         ],
       ),
@@ -480,7 +382,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             padding: EdgeInsets.only(
               left: 16.0,
               right: 16.0,
-              top: 20.0,
+              top: 12.0,
               // When the YouTube player is visible, add its height so lyrics
               // are scrollable past the overlay and fully accessible.
               bottom: _showYoutubePlayer
@@ -493,226 +395,13 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Author Name
-                if (_artistName.isNotEmpty && _artistName != 'UNKNOWN')
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4.0),
-                    child: Text(
-                      'Author: $_artistName',
-                      style: textTheme.titleMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w500,
-                          fontStyle: FontStyle.italic),
-                    ),
-                  ),
-
-                // Key Info & Language Switcher Row
-                Padding(
-                  padding: EdgeInsets.only(
-                      bottom: 16.0,
-                      top: _artistName.isNotEmpty && _artistName != 'UNKNOWN'
-                          ? 4.0
-                          : 0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Left Side: Key Information
-                      Text(
-                        'Key: $displayKey',
-                        style: textTheme.labelLarge?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                            fontStyle: FontStyle.italic),
-                      ),
-
-                      // Right Side: Language Switcher Chips & YouTube
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_youtubeVideoId != null)
-                            Padding(
-                              padding: EdgeInsets.only(
-                                  right:
-                                      (widget.tabData['trans_lines'] != null &&
-                                              (widget.tabData['trans_lines']
-                                                      as List)
-                                                  .isNotEmpty)
-                                          ? 8.0
-                                          : 0.0),
-                              child: SizedBox(
-                                height: 32.0,
-                                child: TextButton.icon(
-                                  icon: const Icon(
-                                      Icons.play_circle_fill_rounded,
-                                      color: Colors.white,
-                                      size: 16),
-                                  label: Text(
-                                    'YouTube',
-                                    style: textTheme.labelMedium?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600),
-                                  ),
-                                  onPressed: () {
-                                    _performVibration();
-                                    _launchYoutubePlayer(_youtubeVideoId!);
-                                  },
-                                  style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10),
-                                    backgroundColor: Colors.red.shade600,
-                                    shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8)),
-                                    minimumSize: const Size(0, 32.0),
-                                    splashFactory: InkSparkle.splashFactory,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (widget.tabData['trans_lines'] != null &&
-                              (widget.tabData['trans_lines'] as List)
-                                  .isNotEmpty)
-                            Builder(builder: (context) {
-                              final String songCategory =
-                                  widget.tabData['category'] as String;
-                              final String? songLanguage =
-                                  widget.tabData['language'] as String?;
-
-                              String nativeLangName = 'Original';
-
-                              if (songLanguage != null &&
-                                  songLanguage.isNotEmpty) {
-                                // Direct language definition takes precedence
-                                nativeLangName = songLanguage[0].toUpperCase() +
-                                    songLanguage.substring(1).toLowerCase();
-                              } else {
-                                // Fallback to category if language is null/empty
-                                if (songCategory == 'kannada' ||
-                                    songCategory == 'kannada_data') {
-                                  nativeLangName = 'Kannada';
-                                } else if (songCategory == 'english' ||
-                                    songCategory == 'english_data') {
-                                  nativeLangName = 'English';
-                                } else {
-                                  nativeLangName = 'Original';
-                                }
-                              }
-                              return _buildLanguageChips(
-                                  context, nativeLangName);
-                            }),
-                        ],
-                      ),
-                    ],
-                  ),
+                _buildSongInfoCard(
+                  context,
+                  hasAnyChords,
+                  songId,
+                  songCategory,
                 ),
-
-                // Font Size & Controls Bar
-                if (hasAnyChords)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        // Right Side: Transpose & Chords
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Show/Hide Chords Button
-                            SizedBox(
-                              height: _kControlsButtonHeight,
-                              child: TextButton.icon(
-                                icon: Icon(
-                                    _showChords
-                                        ? Icons.music_off_rounded
-                                        : Icons.music_note_rounded,
-                                    color: colorScheme.primary,
-                                    size: 20),
-                                label: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                        _showChords
-                                            ? 'Hide Chords'
-                                            : 'Show Chords',
-                                        style: textTheme.labelMedium?.copyWith(
-                                            color: colorScheme.primary,
-                                            fontWeight: FontWeight.w600)),
-                                    const SizedBox(width: 4),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 4, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: colorScheme.secondaryContainer,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text('BETA',
-                                          style: textTheme.labelSmall?.copyWith(
-                                              color: colorScheme
-                                                  .onSecondaryContainer,
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.bold)),
-                                    )
-                                  ],
-                                ),
-                                onPressed: () {
-                                  _performVibration();
-                                  setState(() => _showChords = !_showChords);
-                                },
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12),
-                                  backgroundColor: colorScheme.primaryContainer
-                                      .withOpacity(0.3),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
-                                  minimumSize:
-                                      const Size(0, _kControlsButtonHeight),
-                                  splashFactory: InkSparkle.splashFactory,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            // Transpose Controls Group
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildTransposeButton(context,
-                                    icon: Icons.remove, onTap: () {
-                                  _performVibration();
-                                  setState(() => _transposeSemitones--);
-                                }, tooltip: "Transpose Down"),
-                                Container(
-                                  height: _kControlsButtonHeight,
-                                  alignment: Alignment.center,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10.0),
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.surfaceVariant
-                                        .withOpacity(0.7),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    '${_transposeSemitones > 0 ? '+' : ''}${_transposeSemitones}',
-                                    style: textTheme.labelLarge?.copyWith(
-                                        color: colorScheme.primary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15),
-                                  ),
-                                ),
-                                _buildTransposeButton(context, icon: Icons.add,
-                                    onTap: () {
-                                  _performVibration();
-                                  setState(() => _transposeSemitones++);
-                                }, tooltip: "Transpose Up"),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
+                const SizedBox(height: 16),
                 Card(
                   elevation: 1,
                   margin: EdgeInsets.zero,
@@ -774,41 +463,21 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
             ),
         ],
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          if (isMaster)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16.0),
-              child: FloatingActionButton(
-                heroTag: 'deleteBtn',
-                onPressed: () {
-                  _performVibration();
-                  _confirmDeleteSong(context);
-                },
-                backgroundColor: colorScheme.errorContainer,
-                foregroundColor: colorScheme.onErrorContainer,
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                child: const Icon(Icons.delete_forever_rounded),
-              ),
-            ),
-          FloatingActionButton(
-            heroTag: 'fontSizeBtn',
-            onPressed: () {
-              _performVibration();
-              _showFontSizeBottomSheet(context, colorScheme, textTheme);
-            },
-            backgroundColor: colorScheme.primaryContainer,
-            foregroundColor: colorScheme.onPrimaryContainer,
-            elevation: 2,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: const Icon(Icons.format_size_rounded),
-          ),
-        ],
-      ),
+      floatingActionButton: isMaster
+          ? FloatingActionButton(
+              heroTag: 'deleteBtn',
+              onPressed: () {
+                _performVibration();
+                _confirmDeleteSong(context);
+              },
+              backgroundColor: colorScheme.errorContainer,
+              foregroundColor: colorScheme.onErrorContainer,
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              child: const Icon(Icons.delete_forever_rounded),
+            )
+          : null,
     );
   }
 
@@ -900,110 +569,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     });
   }
 
-  void _showFontSizeBottomSheet(
-      BuildContext context, ColorScheme colorScheme, TextTheme textTheme) {
-    showModalBottomSheet(
-      context: context,
-      useSafeArea: true,
-      constraints: const BoxConstraints(maxWidth: 500),
-      backgroundColor: colorScheme.surfaceContainerHighest,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24.0)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setBottomSheetState) {
-            return Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Adjust Font Size',
-                    style: textTheme.titleMedium?.copyWith(
-                      color: colorScheme.onSurface,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Decrease Size Button
-                      _buildSizeControlButton(
-                        icon: Icons.remove,
-                        onTap: () {
-                          if (_fontSize > 12) {
-                            _performVibration();
-                            setState(() => _fontSize -= 2);
-                            setBottomSheetState(() {});
-                          }
-                        },
-                        colorScheme: colorScheme,
-                      ),
-                      const SizedBox(width: 20),
-                      // Current Size Display
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceVariant,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          _fontSize.toInt().toString(),
-                          style: textTheme.titleLarge?.copyWith(
-                            color: colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      // Increase Size Button
-                      _buildSizeControlButton(
-                        icon: Icons.add,
-                        onTap: () {
-                          if (_fontSize < 36) {
-                            _performVibration();
-                            setState(() => _fontSize += 2);
-                            setBottomSheetState(() {});
-                          }
-                        },
-                        colorScheme: colorScheme,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildSizeControlButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    required ColorScheme colorScheme,
-  }) {
-    return Container(
-      height: 48,
-      width: 48,
-      decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: colorScheme.primary),
-        onPressed: onTap,
-        splashRadius: 24,
-      ),
-    );
-  }
-
   List<Widget> _buildSongLines(
       BuildContext context, bool hasAnyChords, double fontSize) {
     final List<Widget> widgets = [];
@@ -1043,106 +608,838 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     return widgets;
   }
 
-  // ─── LANGUAGE SWITCHER ───────────────────────────────────────────────────
-  Widget _buildLanguageChips(BuildContext context, String nativeLangName) {
+  Widget _stepper({
+    required ColorScheme colorScheme,
+    required TextTheme textTheme,
+    required String value,
+    required VoidCallback onMinus,
+    required VoidCallback onPlus,
+  }) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: SizedBox(
+        height: 44,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: onMinus,
+              icon: Icon(Icons.remove_rounded, color: colorScheme.onSurface),
+            ),
+            SizedBox(
+              width: 36,
+              child: Text(
+                value,
+                textAlign: TextAlign.center,
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: onPlus,
+              icon: Icon(Icons.add_rounded, color: colorScheme.onSurface),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segmentedPair({
+    required ColorScheme colorScheme,
+    required TextTheme textTheme,
+    required String left,
+    required String right,
+    required bool rightSelected,
+    required ValueChanged<bool> onChanged,
+  }) {
+    Widget chip(String label, bool selected, VoidCallback onTap) {
+      return Expanded(
+        child: Material(
+          color: selected ? colorScheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(22),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(22),
+            child: Center(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: selected
+                      ? colorScheme.onPrimary
+                      : colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: SizedBox(
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: Row(
+            children: [
+              chip(left, !rightSelected, () => onChanged(false)),
+              chip(right, rightSelected, () => onChanged(true)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _actionTile({
+    required double width,
+    required ColorScheme colorScheme,
+    required TextTheme textTheme,
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    bool selected = false,
+  }) {
+    return SizedBox(
+      width: width,
+      height: 48,
+      child: Material(
+        color: selected
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: selected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurface,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: selected
+                          ? colorScheme.onPrimaryContainer
+                          : colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSongInfoCard(
+    BuildContext context,
+    bool hasAnyChords,
+    String songId,
+    String songCategory,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final genre = widget.tabData['genre'] as String?;
+    final author = _artistName.trim();
+    final showAuthor = author.isNotEmpty && author.toUpperCase() != 'UNKNOWN';
+
+    return Material(
+      color: colorScheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.75),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SongIdentityBlock(
+              indexLabel: 'SONG',
+              chipLabel: SongUtils.chipLabel(songCategory, genre),
+              title: _title,
+              titleSize: 16,
+              keyLabel: displayKey != 'N/A' ? 'Key: $displayKey' : null,
+              authorLabel: showAuthor ? author : null,
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Divider(
+                height: 1,
+                color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+              ),
+            ),
+            _buildControlBars(
+              context,
+              hasAnyChords,
+              songId,
+              songCategory,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlBars(
+    BuildContext context,
+    bool hasAnyChords,
+    String songId,
+    String songCategory,
+  ) {
+    final isEnglish =
+        songCategory == 'english' || songCategory == 'english_data';
+    if (isEnglish) {
+      return _buildEnglishControlBars(
+        context,
+        hasAnyChords,
+        songId,
+        songCategory,
+      );
+    }
+    return _buildLocalizedControlBars(
+      context,
+      hasAnyChords,
+      songId,
+      songCategory,
+    );
+  }
+
+  static const _kSpringMotion = M3EButtonMotion.expressiveSpatialPress;
+  static const _kConnectedDivider = 2.0;
+  static final _kStepperSize = M3EButtonSize.custom(height: 40, hPadding: 4);
+
+  M3EButtonDecoration get _buttonDecoration => M3EButtonDecoration(
+        motion: _kSpringMotion,
+        haptic: M3EHapticFeedback.light,
+      );
+
+  M3EToggleButtonDecoration get _groupDecoration =>
+      M3EToggleButtonDecoration.styleFrom(
+        motion: _kSpringMotion,
+        haptic: M3EHapticFeedback.light,
+      );
+
+  Widget _buildEnglishControlBars(
+    BuildContext context,
+    bool hasAnyChords,
+    String songId,
+    String songCategory,
+  ) {
+    final hasAudio = _youtubeVideoId != null;
+    final transposeEnabled = hasAnyChords && _showChords;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeInOutCubic,
+          alignment: Alignment.topCenter,
+          child: _hideActions
+              ? const SizedBox(width: double.infinity)
+              : Column(
+                  children: [
+                    SizedBox(
+                      height: 40,
+                      width: double.infinity,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final segment = _connectedSegmentWidth(
+                            constraints.maxWidth,
+                            3,
+                          );
+                          return M3EButtonGroup(
+                            type: M3EButtonGroupType.connected,
+                            shape: M3EButtonShape.round,
+                            size: M3EButtonSize.sm,
+                            style: M3EButtonStyle.tonal,
+                            density: M3EButtonGroupDensity.compact,
+                            neighborSquish: true,
+                            overflow: M3EButtonGroupOverflow.none,
+                            haptic: M3EHapticFeedback.light,
+                            decoration: _groupDecoration,
+                            selectedIndices: {
+                              if (_showChords) 1,
+                            },
+                            onSelectedIndicesChanged: (indices) {
+                              if (indices.contains(0)) {
+                                _showAddToPlaylistSheet(songId, songCategory);
+                              }
+                              if (indices.contains(2) && hasAudio) {
+                                _performVibration();
+                                _launchYoutubePlayer(_youtubeVideoId!);
+                              }
+                              final wantChords =
+                                  hasAnyChords && indices.contains(1);
+                              if (wantChords != _showChords) {
+                                _performVibration();
+                                setState(() => _showChords = wantChords);
+                              }
+                            },
+                            actions: [
+                              M3EButtonGroupAction(
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Playlist'),
+                                ),
+                                width: segment,
+                              ),
+                              M3EButtonGroupAction(
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Chords'),
+                                ),
+                                width: segment,
+                                enabled: hasAnyChords,
+                              ),
+                              M3EButtonGroupAction(
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Audio'),
+                                ),
+                                width: segment,
+                                enabled: hasAudio,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const fontW = 140.0;
+                        const gap = 8.0;
+                        const transposeMin = 196.0;
+                        final leftover = constraints.maxWidth - fontW - gap;
+                        final transposeW =
+                            leftover < transposeMin ? transposeMin : leftover;
+                        return SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: fontW,
+                                child: _m3eStepper(
+                                  colorScheme: colorScheme,
+                                  value: _fontSize.toInt().toString(),
+                                  sideWidth: 40,
+                                  numberWidth: 56,
+                                  onMinus: () {
+                                    if (_fontSize > 12) {
+                                      _performVibration();
+                                      setState(() => _fontSize -= 2);
+                                    }
+                                  },
+                                  onPlus: () {
+                                    if (_fontSize < 36) {
+                                      _performVibration();
+                                      setState(() => _fontSize += 2);
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: gap),
+                              SizedBox(
+                                width: transposeW,
+                                child: _m3eStepper(
+                                  colorScheme: colorScheme,
+                                  leadingLabel: 'Transpose',
+                                  value: _transposeSemitones == 0
+                                      ? '0'
+                                      : '${_transposeSemitones > 0 ? '+' : ''}$_transposeSemitones',
+                                  enabled: transposeEnabled,
+                                  sideWidth: 36,
+                                  numberWidth: 48,
+                                  labelWidth: 86,
+                                  onMinus: () {
+                                    _performVibration();
+                                    setState(() => _transposeSemitones--);
+                                  },
+                                  onPlus: () {
+                                    _performVibration();
+                                    setState(() => _transposeSemitones++);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                ),
+        ),
+        Align(
+          alignment: Alignment.center,
+          child: M3EButton.filled(
+            onPressed: () {
+              _performVibration();
+              setState(() => _hideActions = !_hideActions);
+            },
+            shape: M3EButtonShape.round,
+            size: M3EButtonSize.xs,
+            decoration: _buttonDecoration,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: Text(
+                _hideActions ? 'Show Controls' : 'Hide Controls',
+                key: ValueKey(_hideActions),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  double _connectedSegmentWidth(double maxWidth, int count) {
+    final usable = maxWidth - _kConnectedDivider * (count - 1);
+    return (usable / count).floorToDouble().clamp(0.0, maxWidth);
+  }
+
+  Widget _m3eStepper({
+    required ColorScheme colorScheme,
+    required String value,
+    required VoidCallback onMinus,
+    required VoidCallback onPlus,
+    required double sideWidth,
+    required double numberWidth,
+    String? leadingLabel,
+    double? labelWidth,
+    bool enabled = true,
+  }) {
+    final valueStyle = M3EToggleButtonDecoration.styleFrom(
+      motion: _kSpringMotion,
+      haptic: M3EHapticFeedback.none,
+      foregroundColor: colorScheme.onSurface,
+      disabledForegroundColor: colorScheme.onSurface,
+    );
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      opacity: enabled ? 1 : 0.4,
+      child: IgnorePointer(
+        ignoring: !enabled,
+        child: SizedBox(
+          height: 40,
+          width: double.infinity,
+          child: M3EButtonGroup(
+            type: M3EButtonGroupType.connected,
+            shape: M3EButtonShape.round,
+            size: _kStepperSize,
+            style: M3EButtonStyle.tonal,
+            density: M3EButtonGroupDensity.compact,
+            neighborSquish: false,
+            overflow: M3EButtonGroupOverflow.none,
+            haptic: M3EHapticFeedback.light,
+            decoration: _groupDecoration,
+            selectedIndex: null,
+            onSelectedIndexChanged: (index) {
+              if (index == null) return;
+              if (leadingLabel != null) {
+                if (index == 1) onMinus();
+                if (index == 3) onPlus();
+              } else {
+                if (index == 0) onMinus();
+                if (index == 2) onPlus();
+              }
+            },
+            actions: [
+              if (leadingLabel != null)
+                M3EButtonGroupAction(
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(leadingLabel),
+                  ),
+                  width: labelWidth,
+                ),
+              M3EButtonGroupAction(
+                icon: const Icon(Icons.remove_rounded),
+                width: sideWidth,
+                enabled: enabled,
+              ),
+              M3EButtonGroupAction(
+                label: Text(
+                  value,
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    height: 1,
+                  ),
+                ),
+                width: numberWidth,
+                decoration: valueStyle,
+              ),
+              M3EButtonGroupAction(
+                icon: const Icon(Icons.add_rounded),
+                width: sideWidth,
+                enabled: enabled,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocalizedControlBars(
+    BuildContext context,
+    bool hasAnyChords,
+    String songId,
+    String songCategory,
+  ) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildLanguageChip(
-            context: context,
-            label: nativeLangName,
-            isSelected: !_showTransliteration,
-            onTap: () {
-              if (_showTransliteration) {
-                _performVibration();
-                setState(() => _showTransliteration = false);
-              }
-            },
-            colorScheme: colorScheme,
-            textTheme: textTheme,
-          ),
-          const SizedBox(width: 8),
-          _buildLanguageChip(
-            context: context,
-            label: 'English', // English is always the transliteration target
-            isSelected: _showTransliteration,
-            onTap: () {
-              if (!_showTransliteration) {
-                _performVibration();
-                setState(() => _showTransliteration = true);
-              }
-            },
-            colorScheme: colorScheme,
-            textTheme: textTheme,
-          ),
-        ],
-      ),
-    );
-  }
+    String nativeLangName = 'Original';
+    final songLanguage = widget.tabData['language'] as String?;
+    if (songLanguage != null && songLanguage.isNotEmpty) {
+      nativeLangName = songLanguage[0].toUpperCase() +
+          songLanguage.substring(1).toLowerCase();
+    } else if (songCategory == 'kannada' || songCategory == 'kannada_data') {
+      nativeLangName = 'Kannada';
+    } else if (songCategory == 'english' || songCategory == 'english_data') {
+      nativeLangName = 'English';
+    }
 
-  Widget _buildLanguageChip({
-    required BuildContext context,
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-    required ColorScheme colorScheme,
-    required TextTheme textTheme,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      child: TextButton(
-        onPressed: onTap,
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          backgroundColor: isSelected
-              ? colorScheme.primaryContainer.withOpacity(0.6)
-              : colorScheme.surfaceVariant.withOpacity(0.3),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          minimumSize: const Size(0, _kControlsButtonHeight),
-          splashFactory: InkSparkle.splashFactory,
-        ),
-        child: Text(
-          label,
-          style: textTheme.labelMedium?.copyWith(
-            color: isSelected
-                ? colorScheme.onPrimaryContainer
-                : colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
+    final hasTrans = widget.tabData['trans_lines'] != null &&
+        (widget.tabData['trans_lines'] as List).isNotEmpty;
 
-  Widget _buildTransposeButton(BuildContext context,
-      {required IconData icon, required VoidCallback onTap, String? tooltip}) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: _kControlsButtonHeight,
-      width: _kControlsButtonHeight + 4,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 2.0),
-        decoration: BoxDecoration(
-          color: colorScheme.primaryContainer.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(10),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeInOutCubic,
+          alignment: Alignment.topCenter,
+          child: _hideActions
+              ? const SizedBox(width: double.infinity)
+              : Column(
+                  children: [
+          Row(
+            children: [
+              _stepper(
+                colorScheme: colorScheme,
+                textTheme: textTheme,
+                value: _fontSize.toInt().toString(),
+                onMinus: () {
+                  if (_fontSize > 12) {
+                    _performVibration();
+                    setState(() => _fontSize -= 2);
+                  }
+                },
+                onPlus: () {
+                  if (_fontSize < 36) {
+                    _performVibration();
+                    setState(() => _fontSize += 2);
+                  }
+                },
+              ),
+              if (hasTrans) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _segmentedPair(
+                    colorScheme: colorScheme,
+                    textTheme: textTheme,
+                    left: nativeLangName,
+                    right: 'English',
+                    rightSelected: _showTransliteration,
+                    onChanged: (english) {
+                      _performVibration();
+                      setState(() => _showTransliteration = english);
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (hasAnyChords) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _stepper(
+                  colorScheme: colorScheme,
+                  textTheme: textTheme,
+                  value:
+                      '${_transposeSemitones > 0 ? '+' : ''}$_transposeSemitones',
+                  onMinus: () {
+                    _performVibration();
+                    setState(() => _transposeSemitones--);
+                  },
+                  onPlus: () {
+                    _performVibration();
+                    setState(() => _transposeSemitones++);
+                  },
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Transpose',
+                  style: textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 8.0;
+              final tiles = <Widget Function(double)>[
+                (w) => _actionTile(
+                      width: w,
+                      colorScheme: colorScheme,
+                      textTheme: textTheme,
+                      icon: Icons.playlist_add_rounded,
+                      label: 'Playlist',
+                      onPressed: () =>
+                          _showAddToPlaylistSheet(songId, songCategory),
+                    ),
+                if (hasAnyChords)
+                  (w) => _actionTile(
+                        width: w,
+                        colorScheme: colorScheme,
+                        textTheme: textTheme,
+                        icon: _showChords
+                            ? Icons.music_off_rounded
+                            : Icons.music_note_rounded,
+                        label: _showChords ? 'Hide chords' : 'Chords',
+                        selected: _showChords,
+                        onPressed: () {
+                          _performVibration();
+                          setState(() => _showChords = !_showChords);
+                        },
+                      ),
+                if (_youtubeVideoId != null)
+                  (w) => _actionTile(
+                        width: w,
+                        colorScheme: colorScheme,
+                        textTheme: textTheme,
+                        icon: Icons.play_arrow_rounded,
+                        label: 'Audio',
+                        onPressed: () {
+                          _performVibration();
+                          _launchYoutubePlayer(_youtubeVideoId!);
+                        },
+                      ),
+              ];
+              final cols = tiles.length >= 3 ? 3 : tiles.length;
+              final width =
+                  (constraints.maxWidth - gap * (cols - 1)) / cols;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: tiles.map((build) => build(width)).toList(),
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+                  ],
+                ),
         ),
-        child: IconButton(
-          icon: Icon(icon, size: 20, color: colorScheme.primary),
-          onPressed: onTap,
-          tooltip: tooltip,
-          padding: EdgeInsets.zero,
+        Align(
           alignment: Alignment.center,
-          iconSize: 20,
+          child: M3EButton.filled(
+            onPressed: () {
+              _performVibration();
+              setState(() => _hideActions = !_hideActions);
+            },
+            shape: M3EButtonShape.round,
+            size: M3EButtonSize.xs,
+            decoration: _buttonDecoration,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              child: Text(
+                _hideActions ? 'Show Controls' : 'Hide Controls',
+                key: ValueKey(_hideActions),
+              ),
+            ),
+          ),
         ),
+      ],
+    );
+  }
+
+  void _toggleFavorite(
+    FavoriteProvider favoriteProvider,
+    String songCategory,
+    String songId,
+    bool isFavorite,
+  ) {
+    _performVibration();
+    favoriteProvider.toggleFavorite(songCategory, songId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            isFavorite ? 'Removed from favorites' : 'Added to favorites'),
+        duration: const Duration(seconds: 1),
       ),
+    );
+  }
+
+  Future<void> _showAddToPlaylistSheet(String songId, String category) async {
+    _performVibration();
+    final playlistProv = Provider.of<PlaylistProvider>(context, listen: false);
+
+    await showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text('Add to playlist',
+                    style: Theme.of(ctx)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+              ),
+              if (playlistProv.playlists.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('No playlists yet. Create one first.'),
+                ),
+              ...playlistProv.playlists.map((p) {
+                final already = playlistProv.isSongInPlaylist(p.id, songId);
+                return ListTile(
+                  leading: const Icon(Icons.playlist_play_rounded),
+                  title: Text(p.name),
+                  trailing: already ? const Icon(Icons.check_rounded) : null,
+                  onTap: already
+                      ? null
+                      : () async {
+                          try {
+                            await playlistProv.addSongToPlaylist(
+                                p.id, songId, category);
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Added to ${p.name}')),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('$e')),
+                              );
+                            }
+                          }
+                        },
+                );
+              }),
+              ListTile(
+                leading: const Icon(Icons.add_rounded),
+                title: const Text('New playlist'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final created = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => const _QuickCreatePlaylistDialog(),
+                  );
+                  if (created == true && mounted) {
+                    await _showAddToPlaylistSheet(songId, category);
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _QuickCreatePlaylistDialog extends StatefulWidget {
+  const _QuickCreatePlaylistDialog();
+
+  @override
+  State<_QuickCreatePlaylistDialog> createState() =>
+      _QuickCreatePlaylistDialogState();
+}
+
+class _QuickCreatePlaylistDialogState
+    extends State<_QuickCreatePlaylistDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New playlist'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Playlist name'),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () async {
+            final name = _controller.text.trim();
+            if (name.isEmpty) return;
+            try {
+              await Provider.of<PlaylistProvider>(context, listen: false)
+                  .createPlaylist(name);
+              if (context.mounted) Navigator.pop(context, true);
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text('$e')));
+              }
+            }
+          },
+          child: const Text('Create'),
+        ),
+      ],
     );
   }
 }

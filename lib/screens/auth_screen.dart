@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -18,31 +18,51 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  bool _listenerAttached = false;
+  bool _didComplete = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+  }
 
-    // Register the navigation callback so any login method (email, Apple,
-    // Google OAuth redirect) triggers a pop after _onAuthStateChange fires.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_listenerAttached) return;
+    _listenerAttached = true;
+    final auth = context.read<AuthProvider>();
+    auth.addListener(_onAuthChanged);
+    auth.onLoginSuccess = _completeIfLoggedIn;
+    // Handle the case where the session already landed (e.g. OAuth returned
+    // and this screen was recreated while already signed in).
+    _completeIfLoggedIn();
+  }
+
+  void _onAuthChanged() => _completeIfLoggedIn();
+
+  /// Pops back to the previous screen exactly once after a successful login.
+  void _completeIfLoggedIn() {
+    if (_didComplete || !mounted) return;
+    final auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) return;
+    _didComplete = true;
+    auth.onLoginSuccess = null;
+    auth.removeListener(_onAuthChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final auth = context.read<AuthProvider>();
-      auth.onLoginSuccess = () {
-        if (mounted) {
-          widget.onSuccess?.call();
-          Navigator.of(context).pop(true);
-        }
-      };
+      widget.onSuccess?.call();
+      Navigator.of(context).pop(true);
     });
   }
 
   @override
   void dispose() {
-    // Clear the callback to avoid referencing a dead context.
     try {
-      context.read<AuthProvider>().onLoginSuccess = null;
+      final auth = context.read<AuthProvider>();
+      auth.onLoginSuccess = null;
+      auth.removeListener(_onAuthChanged);
     } catch (_) {}
     _tabController.dispose();
     super.dispose();
@@ -126,11 +146,11 @@ class _AuthScreenState extends State<AuthScreen>
         children: [
           _AuthForm(
               isRegister: false,
-              onSuccess: widget.onSuccess,
+              onSuccess: _completeIfLoggedIn,
               tabController: _tabController),
           _AuthForm(
               isRegister: true,
-              onSuccess: widget.onSuccess,
+              onSuccess: _completeIfLoggedIn,
               tabController: _tabController),
         ],
       ),
@@ -197,11 +217,9 @@ class _AuthFormState extends State<_AuthForm> {
       return;
     }
 
-    // onLoginSuccess callback handles navigation if the stream fired;
-    // fallback check for immediate email flow.
-    if (auth.error == null && auth.isLoggedIn && mounted) {
+    // AuthScreen pops once via _completeIfLoggedIn when isLoggedIn becomes true.
+    if (auth.error == null && auth.isLoggedIn) {
       widget.onSuccess?.call();
-      Navigator.of(context).pop(true);
     }
   }
 
@@ -209,14 +227,11 @@ class _AuthFormState extends State<_AuthForm> {
     auth.clearError();
     await auth.signInWithGoogle();
     // Google is an external OAuth — the browser opens and returns via URL
-    // scheme. The onLoginSuccess callback registered in AuthScreen.initState
-    // handles navigation when _onAuthStateChange fires.
-    // If the user is already signed in by the time we return here (e.g.
-    // token already cached), handle it directly too.
+    // scheme. AuthScreen's auth listener pops when the session arrives.
+    // If the session is already present by the time we return, complete now.
     if (!mounted) return;
     if (auth.error == null && auth.isLoggedIn) {
       widget.onSuccess?.call();
-      Navigator.of(context).pop(true);
     }
   }
 
@@ -227,7 +242,6 @@ class _AuthFormState extends State<_AuthForm> {
     if (!mounted) return;
     if (auth.error == null && auth.isLoggedIn) {
       widget.onSuccess?.call();
-      Navigator.of(context).pop(true);
     }
   }
 
