@@ -8,12 +8,13 @@
         package="com.reyzie.worshipcompanion"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="false"
         android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:enableOnBackInvokedCallback="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -33,8 +34,9 @@
             </intent-filter>
 
             <!-- Supabase OAuth deep-link callback — required for Google sign-in
-                 to return to the app instead of localhost:3000 -->
-            <intent-filter android:autoVerify="true">
+                 to return to the app instead of localhost:3000.
+                 Custom schemes must not use autoVerify (that's for https App Links). -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -51,6 +53,24 @@
                     android:scheme="https"
                     android:host="projects.reyziehomelab.com"
                     android:pathPrefix="/worshipcompanion/song" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="projects.reyziehomelab.com"
+                    android:pathPrefix="/worshipcompanion/lyrics" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="projects.reyziehomelab.com"
+                    android:pathPrefix="/worshipcompanion/playlist" />
             </intent-filter>
 
 
@@ -76,6 +96,15 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+ visibility for OAuth browser + custom-scheme return -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="io.supabase.worshipcompanion"/>
         </intent>
     </queries>
             <uses-permission android:name="android.permission.INTERNET"/>

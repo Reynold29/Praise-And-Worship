@@ -31,8 +31,9 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.reyzie.worshipcompanion"
-    compileSdk = 36
-    ndkVersion = "26.1.10909125"
+    compileSdk = 37
+    // NDK r28+ emits 16 KB-aligned ELF LOAD segments by default.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -50,9 +51,19 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
         minSdk = flutter.minSdkVersion
-        targetSdk = 35
+        targetSdk = 36
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
+        ndk {
+            // 16 KB page-size devices are 64-bit only; keep 64-bit ABIs.
+            abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 
     signingConfigs {
