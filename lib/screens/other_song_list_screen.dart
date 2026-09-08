@@ -1,10 +1,12 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/screens/language_song_list_screen.dart';
-import 'package:worshipcompanion/services/supabase_service.dart';
+import 'package:worshipcompanion/services/local_database_service.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
 import 'package:flutter/services.dart';
 import 'package:worshipcompanion/utils/app_logger.dart';
 import 'package:worshipcompanion/widgets/language_card_hero.dart';
+import 'package:worshipcompanion/widgets/song_list_controls.dart';
 
 class OtherSongListScreen extends StatefulWidget {
   final String heroTag;
@@ -26,6 +28,7 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   String _selectedCategory = 'All'; // New filter state
+  double _fontSize = 16;
 
   void _initializeSearchController() {
     _searchController.clear();
@@ -96,48 +99,57 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
       _error = null;
     });
     try {
-      // Direct: fetch "other" songs (multi-language) from Supabase.
-      final songs =
-          await SupabaseService.instance.getSongsByCategory('other_data');
+      final songs = await LocalDatabaseService.instance.fetchAllOtherSongs();
       if (!mounted) return;
+      _applyOtherSongs(songs);
 
-      final uniqueCategories = songs
-          .map((s) => s.category)
-          .where((c) => c != 'unknown_data' && c.isNotEmpty)
-          .toSet()
-          .toList();
-      uniqueCategories.sort();
-
-      // Sort alphabetically: prioritize englishTitle for sorting if available
-      songs.sort((a, b) {
-        final aTitle = (a.englishTitle != null && a.englishTitle!.isNotEmpty)
-            ? a.englishTitle!
-            : a.title;
-        final bTitle = (b.englishTitle != null && b.englishTitle!.isNotEmpty)
-            ? b.englishTitle!
-            : b.title;
-        return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
-      });
-
-      setState(() {
-        _songs = songs;
-        _availableCategories = ['All', ...uniqueCategories];
-
-        if (!_availableCategories.contains(_selectedCategory)) {
-          _selectedCategory = 'All';
-        }
-
-        _filterSongs();
-        _isLoading = false;
-      });
+      if (await ConnectivityGuard.isOnline()) {
+        LocalDatabaseService.instance.syncOtherFromSupabase().then((_) async {
+          final refreshed = await LocalDatabaseService.instance
+              .fetchAllOtherSongs(allowNetwork: false);
+          if (!mounted || refreshed.isEmpty) return;
+          _applyOtherSongs(refreshed);
+        }).catchError((_) {});
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
       });
-      AppLogger.d('App', 'Error in OtherSongListScreen: $e');
+      AppLogger.e('OtherList', 'Error loading other songs', e);
     }
+  }
+
+  void _applyOtherSongs(List<Song> songs) {
+    final uniqueCategories = songs
+        .map((s) => s.category)
+        .where((c) => c != 'unknown_data' && c.isNotEmpty)
+        .toSet()
+        .toList();
+    uniqueCategories.sort();
+
+    songs.sort((a, b) {
+      final aTitle = (a.englishTitle != null && a.englishTitle!.isNotEmpty)
+          ? a.englishTitle!
+          : a.title;
+      final bTitle = (b.englishTitle != null && b.englishTitle!.isNotEmpty)
+          ? b.englishTitle!
+          : b.title;
+      return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
+    });
+
+    setState(() {
+      _songs = songs;
+      _availableCategories = ['All', ...uniqueCategories];
+
+      if (!_availableCategories.contains(_selectedCategory)) {
+        _selectedCategory = 'All';
+      }
+
+      _filterSongs();
+      _isLoading = false;
+    });
   }
 
   void _navigateToLanguage(String category) {
@@ -259,40 +271,36 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
               ),
             ],
           ),
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      hintText: 'Search songs across all languages...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _performVibration();
-                                _searchController.clear();
-                                FocusScope.of(context).unfocus();
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0)),
-                      filled: true,
-                      fillColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceVariant
-                          .withAlpha(80),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          SongListControlsBar(
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            searchHint: 'Search songs across all languages…',
+            fontSize: _fontSize,
+            onFontSizeChanged: (v) => setState(() => _fontSize = v),
+            syncLabel: 'Sync',
+            onSync: () async {
+              _performVibration();
+              if (!await ConnectivityGuard.ensureOnline(context,
+                  message:
+                      'Sync needs internet to download the latest songs.')) {
+                return;
+              }
+              setState(() => _isLoading = true);
+              try {
+                await LocalDatabaseService.instance.syncOtherFromSupabase(
+                    forceFullResync: true, throwOnError: true);
+                final fetched = await LocalDatabaseService.instance
+                    .fetchAllOtherSongs(allowNetwork: false);
+                if (!mounted) return;
+                _applyOtherSongs(fetched);
+              } catch (e) {
+                if (!mounted) return;
+                setState(() => _isLoading = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Sync failed: $e')),
+                );
+              }
+            },
           ),
           if (_isLoading)
             const Expanded(
@@ -325,74 +333,6 @@ class _OtherSongListScreenState extends State<OtherSongListScreen> {
                   const SizedBox(height: 24),
                   Row(
                     children: [
-                      TextButton.icon(
-                        onPressed: () async {
-                          _performVibration();
-                          setState(() => _isLoading = true);
-                          try {
-                            final fetched = await SupabaseService.instance
-                                .getSongsByCategory('other_data');
-                            if (!mounted) return;
-                            final uniqueCategories = fetched
-                                .map((s) => s.category)
-                                .where(
-                                    (c) => c != 'unknown_data' && c.isNotEmpty)
-                                .toSet()
-                                .toList();
-                            uniqueCategories.sort();
-                            setState(() {
-                              _songs = fetched;
-                              _availableCategories = [
-                                'All',
-                                ...uniqueCategories
-                              ];
-                              if (!_availableCategories
-                                  .contains(_selectedCategory)) {
-                                _selectedCategory = 'All';
-                              }
-
-                              // Sort alphabetically
-                              fetched.sort((a, b) {
-                                final aTitle = (a.englishTitle != null &&
-                                        a.englishTitle!.isNotEmpty)
-                                    ? a.englishTitle!
-                                    : a.title;
-                                final bTitle = (b.englishTitle != null &&
-                                        b.englishTitle!.isNotEmpty)
-                                    ? b.englishTitle!
-                                    : b.title;
-                                return aTitle
-                                    .toLowerCase()
-                                    .compareTo(bTitle.toLowerCase());
-                              });
-
-                              _songs = fetched;
-                              _filterSongs();
-                              _isLoading = false;
-                            });
-                          } catch (e) {
-                            if (!mounted) return;
-                            setState(() {
-                              _error = 'Sync failed: $e';
-                              _isLoading = false;
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.sync_rounded, size: 18),
-                        label: const Text('Sync',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
-                        style: TextButton.styleFrom(
-                          foregroundColor:
-                              Theme.of(context).colorScheme.primary,
-                          backgroundColor: Theme.of(context)
-                              .colorScheme
-                              .primaryContainer
-                              .withAlpha(90),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
                       Expanded(
                           child: Divider(
                               color: Theme.of(context)

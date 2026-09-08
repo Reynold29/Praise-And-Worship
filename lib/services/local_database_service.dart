@@ -1,16 +1,22 @@
-import 'dart:io';
 import 'dart:convert';
-import 'package:path_provider/path_provider.dart';
-import '../utils/app_logger.dart';
-import '../models/song_model.dart';
-import 'supabase_service.dart';
+import 'dart:io';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/song_model.dart';
+import '../utils/app_logger.dart';
+import 'supabase_service.dart';
 
 class LocalDatabaseService {
   static final LocalDatabaseService instance = LocalDatabaseService._();
 
   LocalDatabaseService._();
+
+  List<Song>? _englishCache;
+  List<Song>? _kannadaCache;
+  List<Song>? _otherCache;
 
   Future<String> _getFilePath(String fileName) async {
     final dir = await getApplicationDocumentsDirectory();
@@ -20,6 +26,23 @@ class LocalDatabaseService {
   bool _isOffline(List<ConnectivityResult> results) {
     if (results.isEmpty) return false;
     return results.length == 1 && results.first == ConnectivityResult.none;
+  }
+
+  void invalidateCache({String? category}) {
+    if (category == null) {
+      _englishCache = null;
+      _kannadaCache = null;
+      _otherCache = null;
+      return;
+    }
+    final c = category.toLowerCase();
+    if (c.contains('english')) {
+      _englishCache = null;
+    } else if (c.contains('kannada')) {
+      _kannadaCache = null;
+    } else {
+      _otherCache = null;
+    }
   }
 
   Future<List<Song>> _fetchSongsFromFile(String fileName) async {
@@ -37,7 +60,7 @@ class LocalDatabaseService {
         try {
           final map = jsonList[i] as Map<String, dynamic>;
           validSongs.add(Song.fromJson(map));
-        } catch (e, stacktrace) {
+        } catch (e) {
           AppLogger.e('LocalDB',
               'Failed to parse song at index $i: $e\nData: ${jsonList[i]}');
         }
@@ -68,8 +91,6 @@ class LocalDatabaseService {
       final path = await _getFilePath(fileName);
       final file = File(path);
 
-      // If not forced and it's been less than 24 hours, skip background sync to save bandwidth
-      // HOWEVER, if the file doesn't actually exist (e.g. user cleared DB), we must sync anyway.
       if (!forceFullResync && (nowMillis - lastSyncMillis) < 86400000) {
         if (await file.exists()) {
           AppLogger.d('LocalDB',
@@ -78,7 +99,7 @@ class LocalDatabaseService {
         }
       }
 
-      List<Song> supabaseSongs =
+      final List<Song> supabaseSongs =
           await SupabaseService.instance.getSongsByCategory(supabaseCategory);
 
       if (supabaseSongs.isEmpty && !forceFullResync) {
@@ -89,10 +110,9 @@ class LocalDatabaseService {
 
       final List<Map<String, dynamic>> jsonList =
           supabaseSongs.map((s) => s.toJson()).toList();
-      final jsonString = jsonEncode(jsonList);
-
-      await file.writeAsString(jsonString);
+      await file.writeAsString(jsonEncode(jsonList));
       await prefs.setInt(lastSyncKey, nowMillis);
+      invalidateCache(category: supabaseCategory);
 
       AppLogger.d('LocalDB',
           'Synced ${supabaseSongs.length} songs from $supabaseCategory to $fileName');
@@ -110,17 +130,29 @@ class LocalDatabaseService {
     }
   }
 
-  // ─── English ─────────────────────────────────────────────────────────────
-
-  Future<List<Song>> fetchAllSongs() async {
+  /// Local-first: return disk/memory cache. Only hits network if [allowNetwork]
+  /// and the local file is empty.
+  Future<List<Song>> fetchAllSongs({bool allowNetwork = true}) async {
+    if (_englishCache != null) return _englishCache!;
     final songs = await _fetchSongsFromFile('english_data.json');
-    if (songs.isEmpty) {
-      AppLogger.w('LocalDB',
-          'Local english_data.json was empty. Forcing instant synchronous fetch from Supabase...');
-      await syncFromSupabase(forceFullResync: true);
-      return await _fetchSongsFromFile('english_data.json');
+    if (songs.isNotEmpty) {
+      _englishCache = songs;
+      return songs;
     }
-    return songs;
+    if (!allowNetwork) return const [];
+
+    final connectivity = await Connectivity().checkConnectivity();
+    if (_isOffline(connectivity)) {
+      AppLogger.w('LocalDB', 'English cache empty and offline — returning [].');
+      return const [];
+    }
+
+    AppLogger.w('LocalDB',
+        'Local english_data.json empty — fetching from Supabase once...');
+    await syncFromSupabase(forceFullResync: true);
+    final refreshed = await _fetchSongsFromFile('english_data.json');
+    _englishCache = refreshed;
+    return refreshed;
   }
 
   Future<void> syncFromSupabase(
@@ -131,25 +163,37 @@ class LocalDatabaseService {
 
   Future<void> clearAllSongs() async {
     await _deleteFile('english_data.json');
+    _englishCache = null;
   }
 
-  // ─── Kannada ─────────────────────────────────────────────────────────────
-
-  Future<List<Song>> fetchAllKannadaSongs() async {
-    List<Song> songs = await _fetchSongsFromFile('kannada_data.json');
-    if (songs.isEmpty) {
-      AppLogger.w('LocalDB',
-          'Local kannada_data.json was empty. Forcing instant synchronous fetch from Supabase...');
-      await syncKannadaFromSupabase(forceFullResync: true);
+  Future<List<Song>> fetchAllKannadaSongs({bool allowNetwork = true}) async {
+    List<Song> songs;
+    if (_kannadaCache != null) {
+      songs = _kannadaCache!;
+    } else {
       songs = await _fetchSongsFromFile('kannada_data.json');
+      if (songs.isEmpty && allowNetwork) {
+        final connectivity = await Connectivity().checkConnectivity();
+        if (!_isOffline(connectivity)) {
+          AppLogger.w('LocalDB',
+              'Local kannada_data.json empty — fetching from Supabase once...');
+          await syncKannadaFromSupabase(forceFullResync: true);
+          songs = await _fetchSongsFromFile('kannada_data.json');
+        }
+      }
+      _kannadaCache = songs;
     }
 
     return songs.where((s) {
       final titleLower = s.title.toLowerCase();
       if (titleLower.contains('search christian') ||
-          titleLower.contains('christian lyrics')) return false;
+          titleLower.contains('christian lyrics')) {
+        return false;
+      }
       if (s.category.toLowerCase() != 'kannada' &&
-          s.category.toLowerCase() != 'kannada_data') return false;
+          s.category.toLowerCase() != 'kannada_data') {
+        return false;
+      }
       return true;
     }).toList();
   }
@@ -160,18 +204,25 @@ class LocalDatabaseService {
         forceFullResync: forceFullResync, throwOnError: throwOnError);
   }
 
-  Future<void> removeUnwantedKannadaSongs() async {
-    // Handled purely in fetchAllKannadaSongs via filtering, saving complex file rewrites.
-  }
+  Future<void> removeUnwantedKannadaSongs() async {}
 
   Future<void> clearAllKannadaSongs() async {
     await _deleteFile('kannada_data.json');
+    _kannadaCache = null;
   }
 
-  // ─── Other Languages ─────────────────────────────────────────────────────
-
-  Future<List<Song>> fetchAllOtherSongs() async {
-    return _fetchSongsFromFile('other_data.json');
+  Future<List<Song>> fetchAllOtherSongs({bool allowNetwork = true}) async {
+    if (_otherCache != null) return _otherCache!;
+    var songs = await _fetchSongsFromFile('other_data.json');
+    if (songs.isEmpty && allowNetwork) {
+      final connectivity = await Connectivity().checkConnectivity();
+      if (!_isOffline(connectivity)) {
+        await syncOtherFromSupabase(forceFullResync: true);
+        songs = await _fetchSongsFromFile('other_data.json');
+      }
+    }
+    _otherCache = songs;
+    return songs;
   }
 
   Future<void> updateLocalSong(
@@ -200,6 +251,7 @@ class LocalDatabaseService {
       throw Exception('Song $songId was not found in local cache.');
     }
     await file.writeAsString(jsonEncode(jsonList));
+    invalidateCache(category: table);
   }
 
   Future<Map<String, dynamic>?> getSongById(String table, String id) async {
@@ -237,37 +289,41 @@ class LocalDatabaseService {
 
   Future<void> clearAllOtherSongs() async {
     await _deleteFile('other_data.json');
+    _otherCache = null;
   }
 
-  // ─── Bulk / Periodic Sync ──────────────────────────────────────────────
-
-  /// Checks if a full sync is needed (every 3 days) and runs it if so.
+  /// One coordinated sync: parallel categories, no double full-resync on boot.
   Future<void> syncAllCategories({bool force = false}) async {
     final prefs = await SharedPreferences.getInstance();
     const lastFullSyncKey = 'last_full_sync_all';
     final lastSyncMillis = prefs.getInt(lastFullSyncKey) ?? 0;
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
-
-    // 3 days = 3 * 24 * 60 * 60 * 1000 = 259,200,000 ms
     const threeDaysMs = 259200000;
 
-    if (force || (nowMillis - lastSyncMillis) > threeDaysMs) {
-      AppLogger.d('LocalDB', 'Starting periodic 3-day full sync...');
-      try {
-        await syncFromSupabase(forceFullResync: true);
-        await syncKannadaFromSupabase(forceFullResync: true);
-        await syncOtherFromSupabase(forceFullResync: true);
-        await prefs.setInt(lastFullSyncKey, nowMillis);
-        AppLogger.d('LocalDB', 'Periodic full sync completed.');
-      } catch (e) {
-        AppLogger.e('LocalDB', 'Periodic full sync failed', e);
-      }
-    } else {
-      AppLogger.d('LocalDB', 'Periodic sync not needed yet.');
+    if (!force && (nowMillis - lastSyncMillis) <= threeDaysMs) {
+      // Still allow light per-file 24h syncs when files missing.
+      await Future.wait([
+        syncFromSupabase(),
+        syncKannadaFromSupabase(),
+        syncOtherFromSupabase(),
+      ]);
+      return;
+    }
+
+    AppLogger.d('LocalDB', 'Starting coordinated full sync...');
+    try {
+      await Future.wait([
+        syncFromSupabase(forceFullResync: true),
+        syncKannadaFromSupabase(forceFullResync: true),
+        syncOtherFromSupabase(forceFullResync: true),
+      ]);
+      await prefs.setInt(lastFullSyncKey, nowMillis);
+      AppLogger.d('LocalDB', 'Coordinated full sync completed.');
+    } catch (e) {
+      AppLogger.e('LocalDB', 'Coordinated full sync failed', e);
     }
   }
 
-  /// Triggers a background sync for a specific category (called when favoriting a new song).
   void triggerBackgroundSync(String category) {
     AppLogger.d('LocalDB', 'Triggering background sync for: $category');
     if (category.contains('kannada')) {

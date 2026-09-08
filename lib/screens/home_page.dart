@@ -317,10 +317,14 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     final favKeys = _favoriteProviderInstance.favoriteSongKeys;
 
-    final allEnglish = await LocalDatabaseService.instance.fetchAllSongs();
-    final allKannada =
-        await LocalDatabaseService.instance.fetchAllKannadaSongs();
-    final allOther = await LocalDatabaseService.instance.fetchAllOtherSongs();
+    final results = await Future.wait([
+      LocalDatabaseService.instance.fetchAllSongs(),
+      LocalDatabaseService.instance.fetchAllKannadaSongs(),
+      LocalDatabaseService.instance.fetchAllOtherSongs(),
+    ]);
+    final allEnglish = results[0];
+    final allKannada = results[1];
+    final allOther = results[2];
 
     Map<String, List<Song>> favs = {
       'English': [],

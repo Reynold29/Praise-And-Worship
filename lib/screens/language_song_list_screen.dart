@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
+import 'package:worshipcompanion/widgets/song_list_controls.dart';
 import 'package:vibration/vibration.dart';
 
 class LanguageSongListScreen extends StatefulWidget {
@@ -150,82 +151,14 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
               ),
             ),
           ),
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      hintText: 'Search songs...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _performVibration();
-                                _searchController.clear();
-                                FocusScope.of(context).unfocus();
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0)),
-                      filled: true,
-                      fillColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceVariant
-                          .withAlpha(80),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Material(
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.circular(24),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove, size: 20),
-                        onPressed: () {
-                          _performVibration();
-                          setState(() {
-                            if (_fontSize > 12) _fontSize -= 2;
-                          });
-                        },
-                        tooltip: 'Decrease font size',
-                      ),
-                      Text(
-                        '${_fontSize.toInt()}',
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.bold),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add, size: 20),
-                        onPressed: () {
-                          _performVibration();
-                          setState(() {
-                            if (_fontSize < 32) _fontSize += 2;
-                          });
-                        },
-                        tooltip: 'Increase font size',
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Language Switcher Chips
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          SongListControlsBar(
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            searchHint: 'Search songs…',
+            fontSize: _fontSize,
+            onFontSizeChanged: (v) => setState(() => _fontSize = v),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 _buildTitleLanguageChip(
                   context: context,
@@ -238,7 +171,7 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
                     }
                   },
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 _buildTitleLanguageChip(
                   context: context,
                   label: 'Native',
@@ -253,7 +186,6 @@ class _LanguageSongListScreenState extends State<LanguageSongListScreen> {
               ],
             ),
           ),
-
           Expanded(
             child: _filteredSongs.isEmpty
                 ? Center(

@@ -11,6 +11,11 @@ import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'package:worshipcompanion/widgets/share_qr_dialog.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
 import 'package:worshipcompanion/utils/song_utils.dart';
+import 'package:worshipcompanion/utils/lyrics_format.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
+import 'package:worshipcompanion/screens/edit_song_screen.dart';
+import 'package:worshipcompanion/widgets/snappy_transitions.dart';
+import 'package:worshipcompanion/services/local_database_service.dart';
 
 class SongDetailScreen extends StatefulWidget {
   final Map<String, dynamic>
@@ -81,8 +86,14 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     super.dispose();
   }
 
-  void _showQRShareDialog() {
+  void _showQRShareDialog() async {
     _performVibration();
+    if (!await ConnectivityGuard.ensureOnline(context,
+        message:
+            'Sharing needs internet so others can open the link from the QR.')) {
+      return;
+    }
+    if (!mounted) return;
     final config = Provider.of<AppConfigProvider>(context, listen: false);
     final category = (widget.tabData['category'] ?? '').toString();
     final songId = widget.tabData['id']?.toString() ?? '';
@@ -255,6 +266,12 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   }
 
   Future<void> _performDeleteSong() async {
+    if (!await ConnectivityGuard.ensureOnline(context,
+        message: 'Deleting a song needs an internet connection.',
+        useDialog: true)) {
+      return;
+    }
+    if (!mounted) return;
     final String songId = widget.tabData['id'].toString();
     final String songCategory = widget.tabData['category'] as String;
 
@@ -278,6 +295,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
     try {
       await SupabaseService.instance.deleteSong(tableName, songId);
+      await LocalDatabaseService.instance.syncAllCategories(force: true);
       if (mounted) {
         Navigator.of(context).pop(); // remove loading indicator
         Navigator.of(context).pop(); // go back to list
@@ -315,7 +333,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final bool isFavorite = favoriteProvider.isFavorite(songCategory, songId);
 
     final bool isMaster =
-        appConfigProvider.isMasterUser(authProvider.currentUser?.email);
+        appConfigProvider.isMasterUser(authProvider.email);
 
     return Scaffold(
       appBar: AppBar(
@@ -464,18 +482,42 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         ],
       ),
       floatingActionButton: isMaster
-          ? FloatingActionButton(
-              heroTag: 'deleteBtn',
-              onPressed: () {
-                _performVibration();
-                _confirmDeleteSong(context);
-              },
-              backgroundColor: colorScheme.errorContainer,
-              foregroundColor: colorScheme.onErrorContainer,
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              child: const Icon(Icons.delete_forever_rounded),
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'editBtn',
+                  onPressed: () async {
+                    _performVibration();
+                    if (!await ConnectivityGuard.ensureOnline(context,
+                        message: 'Editing a song needs an internet connection.',
+                        useDialog: true)) {
+                      return;
+                    }
+                    if (!mounted) return;
+                    await Navigator.of(context).push(
+                      snappyPageRoute(
+                        page: EditSongScreen(tabData: widget.tabData),
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.edit_rounded),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton(
+                  heroTag: 'deleteBtn',
+                  onPressed: () {
+                    _performVibration();
+                    _confirmDeleteSong(context);
+                  },
+                  backgroundColor: colorScheme.errorContainer,
+                  foregroundColor: colorScheme.onErrorContainer,
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  child: const Icon(Icons.delete_forever_rounded),
+                ),
+              ],
             )
           : null,
     );
@@ -608,158 +650,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     return widgets;
   }
 
-  Widget _stepper({
-    required ColorScheme colorScheme,
-    required TextTheme textTheme,
-    required String value,
-    required VoidCallback onMinus,
-    required VoidCallback onPlus,
-  }) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: SizedBox(
-        height: 44,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              onPressed: onMinus,
-              icon: Icon(Icons.remove_rounded, color: colorScheme.onSurface),
-            ),
-            SizedBox(
-              width: 36,
-              child: Text(
-                value,
-                textAlign: TextAlign.center,
-                style: textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              onPressed: onPlus,
-              icon: Icon(Icons.add_rounded, color: colorScheme.onSurface),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _segmentedPair({
-    required ColorScheme colorScheme,
-    required TextTheme textTheme,
-    required String left,
-    required String right,
-    required bool rightSelected,
-    required ValueChanged<bool> onChanged,
-  }) {
-    Widget chip(String label, bool selected, VoidCallback onTap) {
-      return Expanded(
-        child: Material(
-          color: selected ? colorScheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(22),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(22),
-            child: Center(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: selected
-                      ? colorScheme.onPrimary
-                      : colorScheme.onSurface,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: SizedBox(
-        height: 44,
-        child: Padding(
-          padding: const EdgeInsets.all(3),
-          child: Row(
-            children: [
-              chip(left, !rightSelected, () => onChanged(false)),
-              chip(right, rightSelected, () => onChanged(true)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _actionTile({
-    required double width,
-    required ColorScheme colorScheme,
-    required TextTheme textTheme,
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-    bool selected = false,
-  }) {
-    return SizedBox(
-      width: width,
-      height: 48,
-      child: Material(
-        color: selected
-            ? colorScheme.primaryContainer
-            : colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(24),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: selected
-                      ? colorScheme.onPrimaryContainer
-                      : colorScheme.onSurface,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: selected
-                          ? colorScheme.onPrimaryContainer
-                          : colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildSongInfoCard(
     BuildContext context,
     bool hasAnyChords,
@@ -817,17 +707,9 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     String songId,
     String songCategory,
   ) {
-    final isEnglish =
-        songCategory == 'english' || songCategory == 'english_data';
-    if (isEnglish) {
-      return _buildEnglishControlBars(
-        context,
-        hasAnyChords,
-        songId,
-        songCategory,
-      );
-    }
-    return _buildLocalizedControlBars(
+    // One Material Expressive control chrome for every language.
+    // Non-English songs get an extra Native / English toggle when transliteration exists.
+    return _buildExpressiveControlBars(
       context,
       hasAnyChords,
       songId,
@@ -850,7 +732,22 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         haptic: M3EHapticFeedback.light,
       );
 
-  Widget _buildEnglishControlBars(
+  String _nativeLangName(String songCategory) {
+    final songLanguage = widget.tabData['language'] as String?;
+    if (songLanguage != null && songLanguage.isNotEmpty) {
+      return songLanguage[0].toUpperCase() +
+          songLanguage.substring(1).toLowerCase();
+    }
+    if (songCategory == 'kannada' || songCategory == 'kannada_data') {
+      return 'Kannada';
+    }
+    if (songCategory == 'english' || songCategory == 'english_data') {
+      return 'English';
+    }
+    return 'Original';
+  }
+
+  Widget _buildExpressiveControlBars(
     BuildContext context,
     bool hasAnyChords,
     String songId,
@@ -859,6 +756,12 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final hasAudio = _youtubeVideoId != null;
     final transposeEnabled = hasAnyChords && _showChords;
     final colorScheme = Theme.of(context).colorScheme;
+    final isEnglish =
+        songCategory == 'english' || songCategory == 'english_data';
+    final hasTrans = !isEnglish &&
+        widget.tabData['trans_lines'] != null &&
+        (widget.tabData['trans_lines'] as List).isNotEmpty;
+    final nativeLangName = _nativeLangName(songCategory);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -871,6 +774,59 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
               ? const SizedBox(width: double.infinity)
               : Column(
                   children: [
+                    if (hasTrans) ...[
+                      SizedBox(
+                        height: 40,
+                        width: double.infinity,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final segment = _connectedSegmentWidth(
+                              constraints.maxWidth,
+                              2,
+                            );
+                            return M3EButtonGroup(
+                              type: M3EButtonGroupType.connected,
+                              shape: M3EButtonShape.round,
+                              size: M3EButtonSize.sm,
+                              style: M3EButtonStyle.tonal,
+                              density: M3EButtonGroupDensity.compact,
+                              neighborSquish: true,
+                              overflow: M3EButtonGroupOverflow.none,
+                              haptic: M3EHapticFeedback.light,
+                              decoration: _groupDecoration,
+                              selectedIndices: {
+                                if (_showTransliteration) 1 else 0,
+                              },
+                              onSelectedIndicesChanged: (indices) {
+                                final wantEnglish = indices.contains(1);
+                                if (wantEnglish != _showTransliteration) {
+                                  _performVibration();
+                                  setState(
+                                      () => _showTransliteration = wantEnglish);
+                                }
+                              },
+                              actions: [
+                                M3EButtonGroupAction(
+                                  label: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(nativeLangName),
+                                  ),
+                                  width: segment,
+                                ),
+                                M3EButtonGroupAction(
+                                  label: const FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text('English'),
+                                  ),
+                                  width: segment,
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
                     SizedBox(
                       height: 40,
                       width: double.infinity,
@@ -1121,184 +1077,6 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     );
   }
 
-  Widget _buildLocalizedControlBars(
-    BuildContext context,
-    bool hasAnyChords,
-    String songId,
-    String songCategory,
-  ) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    String nativeLangName = 'Original';
-    final songLanguage = widget.tabData['language'] as String?;
-    if (songLanguage != null && songLanguage.isNotEmpty) {
-      nativeLangName = songLanguage[0].toUpperCase() +
-          songLanguage.substring(1).toLowerCase();
-    } else if (songCategory == 'kannada' || songCategory == 'kannada_data') {
-      nativeLangName = 'Kannada';
-    } else if (songCategory == 'english' || songCategory == 'english_data') {
-      nativeLangName = 'English';
-    }
-
-    final hasTrans = widget.tabData['trans_lines'] != null &&
-        (widget.tabData['trans_lines'] as List).isNotEmpty;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        AnimatedSize(
-          duration: const Duration(milliseconds: 380),
-          curve: Curves.easeInOutCubic,
-          alignment: Alignment.topCenter,
-          child: _hideActions
-              ? const SizedBox(width: double.infinity)
-              : Column(
-                  children: [
-          Row(
-            children: [
-              _stepper(
-                colorScheme: colorScheme,
-                textTheme: textTheme,
-                value: _fontSize.toInt().toString(),
-                onMinus: () {
-                  if (_fontSize > 12) {
-                    _performVibration();
-                    setState(() => _fontSize -= 2);
-                  }
-                },
-                onPlus: () {
-                  if (_fontSize < 36) {
-                    _performVibration();
-                    setState(() => _fontSize += 2);
-                  }
-                },
-              ),
-              if (hasTrans) ...[
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _segmentedPair(
-                    colorScheme: colorScheme,
-                    textTheme: textTheme,
-                    left: nativeLangName,
-                    right: 'English',
-                    rightSelected: _showTransliteration,
-                    onChanged: (english) {
-                      _performVibration();
-                      setState(() => _showTransliteration = english);
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
-          if (hasAnyChords) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                _stepper(
-                  colorScheme: colorScheme,
-                  textTheme: textTheme,
-                  value:
-                      '${_transposeSemitones > 0 ? '+' : ''}$_transposeSemitones',
-                  onMinus: () {
-                    _performVibration();
-                    setState(() => _transposeSemitones--);
-                  },
-                  onPlus: () {
-                    _performVibration();
-                    setState(() => _transposeSemitones++);
-                  },
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Transpose',
-                  style: textTheme.labelLarge?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const gap = 8.0;
-              final tiles = <Widget Function(double)>[
-                (w) => _actionTile(
-                      width: w,
-                      colorScheme: colorScheme,
-                      textTheme: textTheme,
-                      icon: Icons.playlist_add_rounded,
-                      label: 'Playlist',
-                      onPressed: () =>
-                          _showAddToPlaylistSheet(songId, songCategory),
-                    ),
-                if (hasAnyChords)
-                  (w) => _actionTile(
-                        width: w,
-                        colorScheme: colorScheme,
-                        textTheme: textTheme,
-                        icon: _showChords
-                            ? Icons.music_off_rounded
-                            : Icons.music_note_rounded,
-                        label: _showChords ? 'Hide chords' : 'Chords',
-                        selected: _showChords,
-                        onPressed: () {
-                          _performVibration();
-                          setState(() => _showChords = !_showChords);
-                        },
-                      ),
-                if (_youtubeVideoId != null)
-                  (w) => _actionTile(
-                        width: w,
-                        colorScheme: colorScheme,
-                        textTheme: textTheme,
-                        icon: Icons.play_arrow_rounded,
-                        label: 'Audio',
-                        onPressed: () {
-                          _performVibration();
-                          _launchYoutubePlayer(_youtubeVideoId!);
-                        },
-                      ),
-              ];
-              final cols = tiles.length >= 3 ? 3 : tiles.length;
-              final width =
-                  (constraints.maxWidth - gap * (cols - 1)) / cols;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: tiles.map((build) => build(width)).toList(),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-                  ],
-                ),
-        ),
-        Align(
-          alignment: Alignment.center,
-          child: M3EButton.filled(
-            onPressed: () {
-              _performVibration();
-              setState(() => _hideActions = !_hideActions);
-            },
-            shape: M3EButtonShape.round,
-            size: M3EButtonSize.xs,
-            decoration: _buttonDecoration,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              child: Text(
-                _hideActions ? 'Show Controls' : 'Hide Controls',
-                key: ValueKey(_hideActions),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   void _toggleFavorite(
     FavoriteProvider favoriteProvider,
     String songCategory,
@@ -1467,20 +1245,25 @@ class ChordLyricLine extends StatelessWidget {
       fontSize: fontSize,
       height: 1.6,
       letterSpacing: 0.2,
+      fontFamily: 'monospace',
     );
     final chordStyle = textTheme.titleSmall?.copyWith(
       color: colorScheme.primary,
       fontWeight: FontWeight.bold,
       letterSpacing: 0.5,
       fontSize: fontSize - 1,
+      fontFamily: 'monospace',
     );
 
+    // Preserve blank lines between verses (do not drop empty lyric rows).
     if (lyric.trim().isEmpty && (chords == null || chords!.isEmpty)) {
-      return const SizedBox.shrink();
+      return SizedBox(height: fontSize * 1.35);
     }
 
+    final displayLyric = LyricsFormat.preserveForDisplay(lyric);
+
     if (chords == null || chords!.isEmpty) {
-      return Text(lyric, style: lyricStyle);
+      return Text(displayLyric, style: lyricStyle);
     }
 
     return Column(
@@ -1489,7 +1272,7 @@ class ChordLyricLine extends StatelessWidget {
       children: [
         _buildChordsRow(chordStyle),
         const SizedBox(height: 2),
-        Text(lyric, style: lyricStyle),
+        Text(displayLyric, style: lyricStyle),
       ],
     );
   }

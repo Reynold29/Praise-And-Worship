@@ -34,66 +34,70 @@ Future<void> main() async {
     return true;
   };
 
-  // Initialize inditrans for transliteration support
-  await inditrans.init();
+  // Transliteration is only needed for Kannada search — init in background.
+  inditrans.init().catchError((e) {
+    AppLogger.w('App', 'inditrans init failed: $e');
+  });
 
   // Defensive: Track if Supabase is initialized
   bool supabaseInitialized = false;
 
-  // Try to load .env file, but don't fail if it doesn't exist
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
     AppLogger.w('App', 'Could not load .env file: $e');
   }
 
-  // Try to initialize Supabase, but don't block if it fails
+  // Init Supabase on the primary URL immediately (no TCP probe wait).
+  // Fallback probe runs in background and only matters if primary is blocked.
   try {
     final primaryUrl = dotenv.env['SUPABASE_URL'];
     final fallbackUrl = dotenv.env['SUPABASE_URL_FALLBACK'];
     final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
 
     if (primaryUrl != null && supabaseAnonKey != null) {
-      // Resolve best reachable URL — 2.5 s TCP probe per candidate.
-      // Users on working connections hit Supabase with zero extra delay.
-      // Blocked users wait ≤2.5 s then fall through to JioBase.
-      final resolvedUrl = fallbackUrl != null
-          ? await SupabaseUrlResolver.instance.resolve(
-              primary: primaryUrl,
-              fallback: fallbackUrl,
-            )
-          : primaryUrl;
-
       await Supabase.initialize(
-        url: resolvedUrl,
+        url: primaryUrl,
         anonKey: supabaseAnonKey,
       );
       supabaseInitialized = true;
-      AppLogger.d('App', 'Supabase initialized (url: $resolvedUrl)');
+      AppLogger.d('App', 'Supabase initialized (url: $primaryUrl)');
+
+      if (fallbackUrl != null) {
+        // Non-blocking: if primary is unreachable, remember fallback for next cold start.
+        SupabaseUrlResolver.instance
+            .resolve(primary: primaryUrl, fallback: fallbackUrl)
+            .then((resolved) {
+          if (resolved != primaryUrl) {
+            AppLogger.d('App', 'Preferred reachable URL is $resolved (next launch)');
+          }
+        }).catchError((e) {
+          AppLogger.w('App', 'URL probe failed: $e');
+        });
+      }
     } else {
       AppLogger.w('App', 'Supabase credentials not found in .env');
     }
   } catch (e) {
     AppLogger.e('App', 'Supabase initialization failed', e);
-    // Proceed without Supabase; local DB will be used
   }
 
-  final prefs = await SharedPreferences.getInstance();
+  final themeProvider = ThemeProvider();
+  final prefsFuture = SharedPreferences.getInstance();
+  await Future.wait([
+    prefsFuture,
+    themeProvider.initialize(),
+  ]);
+  final prefs = await prefsFuture;
   final showOnboarding = prefs.getBool('onboarding_complete') ?? false;
 
-  final themeProvider = ThemeProvider();
-  await themeProvider.initialize();
-
-  // Initialize FavoriteProvider and load favorites
   final favoriteProvider = FavoriteProvider();
   final playlistProvider = PlaylistProvider();
 
-  // Restore cloud session if user was already logged in
   if (supabaseInitialized) {
     try {
       final existingUser = Supabase.instance.client.auth.currentUser;
       if (existingUser != null) {
-        // Load cloud favourites without blocking; UI shows loading state
         favoriteProvider.switchToCloud(existingUser.id).catchError((e) {
           AppLogger.e('App', 'Failed to restore cloud favourites', e);
         });
@@ -106,49 +110,37 @@ Future<void> main() async {
     }
   }
 
-  // Create AuthProvider (depends on favoriteProvider)
   final authProvider = AuthProvider(favoriteProvider, playlistProvider);
 
-  // Fetch remote app config (social_login_enabled, etc.)
-  // This is non-blocking in that we await it before runApp but it has a
-  // 6-second timeout and falls back to safe defaults on failure.
+  // Cached config paints immediately; refresh from network in background.
+  // Await the first network load briefly so master_emails is available for Admin.
   final appConfigProvider = AppConfigProvider();
   if (supabaseInitialized) {
-    await appConfigProvider.load();
+    try {
+      await appConfigProvider.load().timeout(const Duration(seconds: 4));
+    } catch (e) {
+      AppLogger.e('App', 'App config load timed out / failed (using cache)', e);
+      appConfigProvider.load().catchError((e) {
+        AppLogger.e('App', 'Background app config load failed', e);
+      });
+    }
   }
 
-  // --- Sync local DB from Supabase if online and Supabase is initialized ---
-  // Make this non-blocking so app can start even without internet
   if (supabaseInitialized) {
-    try {
-      final connectivityResult = await Connectivity().checkConnectivity();
+    Connectivity().checkConnectivity().then((connectivityResult) {
       final online = connectivityResult.isEmpty ||
           !(connectivityResult.length == 1 &&
               connectivityResult.first == ConnectivityResult.none);
       if (online) {
-        // Run sync in background without blocking app startup
-        LocalDatabaseService.instance.syncFromSupabase().catchError((e) {
-          AppLogger.e('App', 'Background English sync failed', e);
-        });
-        LocalDatabaseService.instance.syncKannadaFromSupabase().then((_) {
-          LocalDatabaseService.instance.removeUnwantedKannadaSongs();
-        }).catchError((e) {
-          AppLogger.e('App', 'Background Kannada sync failed', e);
-        });
-        LocalDatabaseService.instance.syncOtherFromSupabase().catchError((e) {
-          AppLogger.e('App', 'Background Other sync failed', e);
-        });
-
-        // Trigger periodic 3-day full sync check
+        // Single coordinated sync — avoids duplicate full downloads on boot.
         LocalDatabaseService.instance.syncAllCategories().catchError((e) {
-          AppLogger.e('App', 'Periodic full sync check failed', e);
+          AppLogger.e('App', 'Background sync failed', e);
         });
       }
       RealtimeSyncService.instance.startListening();
-    } catch (e) {
+    }).catchError((e) {
       AppLogger.e('App', 'Connectivity check or sync failed', e);
-      // Continue without sync
-    }
+    });
   }
 
   runApp(
@@ -197,10 +189,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       final online = result.isEmpty ||
           !(result.length == 1 && result.first == ConnectivityResult.none);
       if (online && widget.supabaseInitialized) {
-        await LocalDatabaseService.instance.syncFromSupabase();
-        await LocalDatabaseService.instance.syncKannadaFromSupabase();
-        await LocalDatabaseService.instance.syncOtherFromSupabase();
-        // Also refresh favorites in case they were updated by sync
+        await LocalDatabaseService.instance.syncAllCategories();
         if (mounted) {
           Provider.of<FavoriteProvider>(context, listen: false)
               .refreshFavorites();

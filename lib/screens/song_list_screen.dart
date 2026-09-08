@@ -1,9 +1,11 @@
 import 'package:worshipcompanion/utils/app_logger.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
-import 'package:worshipcompanion/services/supabase_service.dart';
+import 'package:worshipcompanion/services/local_database_service.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
 import 'package:worshipcompanion/widgets/language_card_hero.dart';
+import 'package:worshipcompanion/widgets/song_list_controls.dart';
 import 'package:vibration/vibration.dart';
 
 class SongListScreen extends StatefulWidget {
@@ -168,12 +170,10 @@ class _SongListScreenState extends State<SongListScreen> {
     });
 
     try {
-      // Direct: fetch English songs from Supabase and show.
       final fetchedSongs =
-          await SupabaseService.instance.getSongsByCategory('english_data');
+          await LocalDatabaseService.instance.fetchAllSongs();
       if (!mounted) return;
 
-      // Sort alphabetically by title
       fetchedSongs.sort(
           (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
 
@@ -183,6 +183,22 @@ class _SongListScreenState extends State<SongListScreen> {
         _isLoading = false;
         _currentMax = _pageSize.clamp(0, _filteredSongs.length);
       });
+
+      // Quiet background refresh when online (does not block UI).
+      if (await ConnectivityGuard.isOnline()) {
+        LocalDatabaseService.instance.syncFromSupabase().then((_) async {
+          final refreshed =
+              await LocalDatabaseService.instance.fetchAllSongs(allowNetwork: false);
+          if (!mounted || refreshed.isEmpty) return;
+          refreshed.sort(
+              (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+          setState(() {
+            _songs = refreshed;
+            _filterSongs();
+            _currentMax = _pageSize.clamp(0, _filteredSongs.length);
+          });
+        }).catchError((_) {});
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -259,168 +275,50 @@ class _SongListScreenState extends State<SongListScreen> {
               ),
             ],
           ),
-          // Search bar and Font Controls
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      hintText: 'Search songs…',
-                      prefixIcon: Icon(Icons.search_rounded,
-                          color: colorScheme.primary),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: Icon(Icons.clear_rounded,
-                                  color: colorScheme.onSurfaceVariant),
-                              onPressed: () {
-                                _performVibration();
-                                _searchController.clear();
-                                FocusScope.of(context).unfocus();
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                      filled: true,
-                      fillColor:
-                          colorScheme.surfaceContainerHighest.withAlpha(180),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Material(
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.circular(24),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove, size: 20),
-                        tooltip: 'Decrease font size',
-                        onPressed: () {
-                          _performVibration();
-                          setState(() {
-                            if (_fontSize > 12) _fontSize -= 2;
-                          });
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: Text(
-                          _fontSize.toInt().toString(),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add, size: 20),
-                        tooltip: 'Increase font size',
-                        onPressed: () {
-                          _performVibration();
-                          setState(() {
-                            if (_fontSize < 28) _fontSize += 2;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          // Search + font (M3E) + sync
+          SongListControlsBar(
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            searchHint: 'Search songs…',
+            fontSize: _fontSize,
+            onFontSizeChanged: (v) => setState(() => _fontSize = v),
+            syncLabel: 'Sync Songs',
+            onSync: () async {
+              _performVibration();
+              if (!await ConnectivityGuard.ensureOnline(context,
+                  message:
+                      'Sync needs internet to download the latest English songs.')) {
+                return;
+              }
+              setState(() => _isLoading = true);
+              try {
+                await LocalDatabaseService.instance
+                    .syncFromSupabase(forceFullResync: true, throwOnError: true);
+                final fetched = await LocalDatabaseService.instance
+                    .fetchAllSongs(allowNetwork: false);
+                if (!mounted) return;
+                fetched.sort((a, b) =>
+                    a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+                setState(() {
+                  _songs = fetched;
+                  _filterSongs();
+                  _currentMax = _pageSize.clamp(0, _filteredSongs.length);
+                  _isLoading = false;
+                });
+              } catch (e) {
+                if (!mounted) return;
+                setState(() => _isLoading = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Sync failed: $e')),
+                );
+              }
+            },
           ),
-          // Sync Button Fallback
-          Padding(
-            padding:
-                const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 8.0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () async {
-                  _performVibration();
-                  setState(() => _isLoading = true);
-                  try {
-                    final fetched = await SupabaseService.instance
-                        .getSongsByCategory('english_data');
-                    if (!mounted) return;
-
-                    // Sort alphabetically by title
-                    fetched.sort((a, b) =>
-                        a.title.toLowerCase().compareTo(b.title.toLowerCase()));
-
-                    setState(() {
-                      _songs = fetched;
-                      _filterSongs();
-                      _currentMax = _pageSize.clamp(0, _filteredSongs.length);
-                      _isLoading = false;
-                    });
-                  } catch (e) {
-                    if (!mounted) return;
-                    setState(() {
-                      _error = 'Sync failed: $e';
-                      _isLoading = false;
-                    });
-                  }
-                },
-                icon: const Icon(Icons.sync_rounded, size: 20),
-                label: const Text('Sync Songs',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                style: TextButton.styleFrom(
-                  foregroundColor: colorScheme.primary,
-                  backgroundColor: colorScheme.primaryContainer.withAlpha(100),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                ),
-              ),
-            ),
-          ),
-          // Alphabet filter bar
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 10.0),
-              children: [
-                ..._alphabet.map((letter) {
-                  final has = availableLetters.contains(letter);
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                    child: Opacity(
-                      opacity: has ? 1.0 : 0.3,
-                      child: ChoiceChip(
-                        label: Text(letter),
-                        selected: _selectedLetter == letter,
-                        onSelected: has
-                            ? (_) {
-                                _performVibration();
-                                _onLetterSelected(
-                                    _selectedLetter == letter ? null : letter);
-                              }
-                            : null,
-                        selectedColor: colorScheme.primary.withOpacity(0.18),
-                      ),
-                    ),
-                  );
-                }),
-                if (_selectedLetter != null)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8.0),
-                    child: ActionChip(
-                      label: Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _performVibration();
-                        _onLetterSelected(null);
-                      },
-                      backgroundColor: colorScheme.surfaceContainerHighest,
-                    ),
-                  ),
-              ],
-            ),
+          SongListAlphabetBar(
+            letters: _alphabet,
+            availableLetters: availableLetters,
+            selectedLetter: _selectedLetter,
+            onSelected: _onLetterSelected,
           ),
           // Results count
           AnimatedSwitcher(

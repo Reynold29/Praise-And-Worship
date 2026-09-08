@@ -3,6 +3,8 @@ import 'package:worshipcompanion/services/supabase_service.dart';
 import 'package:worshipcompanion/services/local_database_service.dart';
 import 'package:worshipcompanion/utils/app_logger.dart';
 import 'package:worshipcompanion/utils/song_utils.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
+import 'package:worshipcompanion/utils/lyrics_format.dart';
 
 class EditSongScreen extends StatefulWidget {
   final Map<String, dynamic> tabData;
@@ -26,6 +28,7 @@ class _EditSongScreenState extends State<EditSongScreen> {
   late TextEditingController _genreController;
 
   bool _isSaving = false;
+  static const _preservePaste = PreservePasteFormatter();
 
   @override
   void initState() {
@@ -35,11 +38,15 @@ class _EditSongScreenState extends State<EditSongScreen> {
         text: data['original_title'] ?? data['title'] ?? '');
     _englishTitleController =
         TextEditingController(text: data['english_title'] ?? '');
-    _artistController = TextEditingController(text: data['artist_name'] ?? '');
-    _lyricsController = TextEditingController(text: data['lyrics'] ?? '');
-    _transLyricsController =
-        TextEditingController(text: data['trans_lyrics'] ?? '');
-    _chordsController = TextEditingController(text: data['chords'] ?? '');
+    _artistController = TextEditingController(
+        text: data['author_name'] ?? data['artist_name'] ?? '');
+    _lyricsController = TextEditingController(
+        text: LyricsFormat.normalizePaste((data['lyrics'] ?? '').toString()));
+    _transLyricsController = TextEditingController(
+        text: LyricsFormat.normalizePaste(
+            (data['trans_lyrics'] ?? '').toString()));
+    _chordsController = TextEditingController(
+        text: LyricsFormat.normalizePaste((data['chords'] ?? '').toString()));
     _keyController = TextEditingController(text: data['key_signature'] ?? '');
     _youtubeController =
         TextEditingController(text: data['youtube_link'] ?? '');
@@ -65,6 +72,12 @@ class _EditSongScreenState extends State<EditSongScreen> {
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (!await ConnectivityGuard.ensureOnline(context,
+        message: 'Saving song edits needs an internet connection.',
+        useDialog: true)) {
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     final String songId = widget.tabData['id'].toString();
@@ -74,11 +87,11 @@ class _EditSongScreenState extends State<EditSongScreen> {
       'title': _titleController.text.trim(),
       'english_title': _englishTitleController.text.trim(),
       'author_name': _artistController.text.trim(),
-      'lyrics': _lyricsController.text.trim(),
-      'trans_lyrics': _transLyricsController.text.trim().isEmpty
+      'lyrics': LyricsFormat.normalizePaste(_lyricsController.text),
+      'trans_lyrics': _transLyricsController.text.isEmpty
           ? null
-          : _transLyricsController.text.trim(),
-      'chords': _chordsController.text.trim(),
+          : LyricsFormat.normalizePaste(_transLyricsController.text),
+      'chords': LyricsFormat.normalizePaste(_chordsController.text),
       'key_signature': _keyController.text.trim(),
       'youtube_link': _youtubeController.text.trim(),
       'bpm': int.tryParse(_bpmController.text.trim()),
@@ -200,11 +213,19 @@ class _EditSongScreenState extends State<EditSongScreen> {
               ),
               const SizedBox(height: 24),
               _buildSectionHeader('Lyrics & Chords', colorScheme),
+              Text(
+                'Spacing and line breaks are kept exactly as pasted.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 8),
               _buildTextField(
                 controller: _lyricsController,
                 label: 'Lyrics (UTF-8)',
                 hint: 'Paste lyrics here...',
                 maxLines: 8,
+                preservePaste: true,
                 validator: (v) => v!.isEmpty ? 'Lyrics are required' : null,
               ),
               _buildTextField(
@@ -212,12 +233,14 @@ class _EditSongScreenState extends State<EditSongScreen> {
                 label: 'Chords (Dot notation)',
                 hint: 'e.g. .G ... .C',
                 maxLines: 4,
+                preservePaste: true,
               ),
               _buildTextField(
                 controller: _transLyricsController,
                 label: 'Transliterated Lyrics (Optional)',
                 hint: 'Latin script version...',
                 maxLines: 6,
+                preservePaste: true,
               ),
               const SizedBox(height: 24),
               _buildSectionHeader('Music Data', colorScheme),
@@ -294,6 +317,7 @@ class _EditSongScreenState extends State<EditSongScreen> {
     int maxLines = 1,
     String? Function(String?)? validator,
     TextInputType keyboardType = TextInputType.text,
+    bool preservePaste = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
@@ -304,6 +328,17 @@ class _EditSongScreenState extends State<EditSongScreen> {
         keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
         textInputAction:
             maxLines > 1 ? TextInputAction.newline : TextInputAction.next,
+        textCapitalization: preservePaste
+            ? TextCapitalization.none
+            : TextCapitalization.sentences,
+        style: preservePaste
+            ? const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 14,
+                height: 1.45,
+              )
+            : null,
+        inputFormatters: preservePaste ? const [_preservePaste] : null,
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,

@@ -13,8 +13,10 @@ import 'package:worshipcompanion/screens/other_song_list_screen.dart';
 import 'package:worshipcompanion/screens/home_page.dart';
 import 'package:worshipcompanion/screens/qr_scanner_screen.dart';
 import 'package:worshipcompanion/screens/playlist_list_screen.dart';
+import 'package:worshipcompanion/screens/admin_panel_screen.dart';
 import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 import 'package:worshipcompanion/widgets/language_card_hero.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
 import 'package:provider/provider.dart';
 import 'package:worshipcompanion/widgets/auth_provider.dart';
 import 'package:worshipcompanion/widgets/app_config_provider.dart';
@@ -55,9 +57,13 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
     super.didChangeDependencies();
     if (_didPrecache) return;
     _didPrecache = true;
-    for (final card in demoCardData) {
-      precacheImage(AssetImage('assets/cards/${card.image}'), context);
-    }
+      for (final card in demoCardData) {
+        final provider = ResizeImage(
+          AssetImage('assets/cards/${card.image}'),
+          width: LanguageCardHero.cacheWidthFor(context),
+        );
+        precacheImage(provider, context);
+      }
   }
 
   void _onPageChanged(int index) {
@@ -260,6 +266,35 @@ class _SlidingCardsViewState extends State<SlidingCardsView> {
                                   snappyPageRoute(
                                       page: const FavoritesScreen()));
                             }
+                          },
+                        ),
+                        Consumer2<AuthProvider, AppConfigProvider>(
+                          builder: (ctx, auth, config, _) {
+                            if (!auth.isLoggedIn ||
+                                !config.isMasterUser(auth.email)) {
+                              return const SizedBox.shrink();
+                            }
+                            return _NavItem(
+                              icon: Icons.admin_panel_settings_rounded,
+                              label: 'Admin',
+                              color: colorScheme.tertiaryContainer,
+                              iconColor: colorScheme.onTertiaryContainer,
+                              onTap: () async {
+                                _vibrate();
+                                if (!await ConnectivityGuard.ensureOnline(
+                                    context,
+                                    message:
+                                        'Admin controls need an internet connection.',
+                                    useDialog: true)) {
+                                  return;
+                                }
+                                if (!context.mounted) return;
+                                Navigator.push(
+                                    context,
+                                    snappyPageRoute(
+                                        page: const AdminPanelScreen()));
+                              },
+                            );
                           },
                         ),
                         _NavItem(

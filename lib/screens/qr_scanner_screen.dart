@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/qr_router_service.dart';
 import '../utils/app_logger.dart';
+import '../utils/connectivity_guard.dart';
 
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
@@ -12,6 +13,17 @@ class QRScannerScreen extends StatefulWidget {
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
   bool _screenOpened = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await ConnectivityGuard.ensureOnline(context,
+          message:
+              'Scanning cloud song/playlist QRs works best online. Offline scans may fail for new content.');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

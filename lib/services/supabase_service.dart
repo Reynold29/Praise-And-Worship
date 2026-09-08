@@ -102,4 +102,36 @@ class SupabaseService {
       rethrow;
     }
   }
+
+  /// Pending submissions awaiting master approval.
+  Future<List<Map<String, dynamic>>> fetchPendingSongs() async {
+    final response = await _client
+        .from('pending_songs')
+        .select()
+        .or('is_reviewed.is.null,is_reviewed.eq.false')
+        .order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(response as List);
+  }
+
+  /// Approves via is_reviewed trigger → inserts into language table.
+  Future<void> approvePendingSong(String id) async {
+    await _client.from('pending_songs').update({
+      'is_reviewed': true,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  Future<void> rejectPendingSong(String id) async {
+    await _client.from('pending_songs').delete().eq('id', id);
+  }
+
+  /// Correct lyrics / metadata on a pending submission before approve.
+  Future<void> updatePendingSong(
+      String id, Map<String, dynamic> data) async {
+    final payload = Map<String, dynamic>.from(data)
+      ..remove('id')
+      ..removeWhere((key, value) => value == null && key != 'trans_lyrics');
+    payload['updated_at'] = DateTime.now().toUtc().toIso8601String();
+    await _client.from('pending_songs').update(payload).eq('id', id);
+  }
 }

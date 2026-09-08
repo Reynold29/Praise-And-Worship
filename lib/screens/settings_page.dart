@@ -5,6 +5,11 @@ import 'package:worshipcompanion/widgets/theme_provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/services.dart';
 import '../services/local_database_service.dart';
+import 'package:worshipcompanion/widgets/auth_provider.dart';
+import 'package:worshipcompanion/widgets/app_config_provider.dart';
+import 'package:worshipcompanion/screens/admin_panel_screen.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
+import 'package:worshipcompanion/widgets/snappy_transitions.dart';
 
 // ─── Theme mode enum ──────────────────────────────────────────────────────────
 enum AppThemeMode {
@@ -42,6 +47,9 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _loadPreferences();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AppConfigProvider>().load();
+    });
   }
 
   Future<void> _loadPreferences() async {
@@ -168,6 +176,46 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
+          Consumer2<AuthProvider, AppConfigProvider>(
+            builder: (context, auth, config, _) {
+              if (!auth.isLoggedIn || !config.isMasterUser(auth.email)) {
+                return const SizedBox.shrink();
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _SectionLabel(label: 'Admin'),
+                  _SettingsCard(children: [
+                    _SettingsTile(
+                      icon: Icons.admin_panel_settings_rounded,
+                      iconColor: colorScheme.tertiary,
+                      title: 'Admin controls',
+                      subtitle:
+                          'Approve pending songs, force sync, manage library',
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: colorScheme.onSurfaceVariant),
+                      onTap: () async {
+                        _vibrate();
+                        if (!await ConnectivityGuard.ensureOnline(context,
+                            message:
+                                'Admin controls need an internet connection.',
+                            useDialog: true)) {
+                          return;
+                        }
+                        if (!context.mounted) return;
+                        Navigator.push(
+                          context,
+                          snappyPageRoute(page: const AdminPanelScreen()),
+                        );
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 20),
+                ],
+              );
+            },
+          ),
+
           // ── Appearance Preview Card ────────────────────────────────────
           _SectionLabel(label: 'Appearance Preview'),
           _AppearancePreviewCard(

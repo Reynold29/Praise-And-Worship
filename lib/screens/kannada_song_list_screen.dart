@@ -3,8 +3,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:worshipcompanion/models/song_model.dart';
 import 'package:worshipcompanion/widgets/song_card_widget.dart';
 import 'package:worshipcompanion/widgets/language_card_hero.dart';
+import 'package:worshipcompanion/widgets/song_list_controls.dart';
 import 'package:worshipcompanion/services/local_database_service.dart';
-import 'package:worshipcompanion/services/supabase_service.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
 import 'package:inditrans/inditrans.dart' as inditrans;
 import 'package:vibration/vibration.dart';
 
@@ -206,13 +207,11 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
       _error = null;
     });
     try {
-      // Direct: fetch Kannada songs from Supabase and show.
       final fetchedSongs =
-          await SupabaseService.instance.getSongsByCategory('kannada_data');
+          await LocalDatabaseService.instance.fetchAllKannadaSongs();
       if (mounted) {
         final filtered = _filterInvalidSongs(fetchedSongs);
 
-        // Sort alphabetically: prioritize englishTitle for sorting if available
         filtered.sort((a, b) {
           final aTitle = (a.englishTitle != null && a.englishTitle!.isNotEmpty)
               ? a.englishTitle!
@@ -229,6 +228,31 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
           _filterSongs();
           _isLoading = false;
         });
+      }
+
+      if (await ConnectivityGuard.isOnline()) {
+        LocalDatabaseService.instance.syncKannadaFromSupabase().then((_) async {
+          final refreshed = await LocalDatabaseService.instance
+              .fetchAllKannadaSongs(allowNetwork: false);
+          if (!mounted || refreshed.isEmpty) return;
+          final filtered = _filterInvalidSongs(refreshed);
+          filtered.sort((a, b) {
+            final aTitle =
+                (a.englishTitle != null && a.englishTitle!.isNotEmpty)
+                    ? a.englishTitle!
+                    : a.title;
+            final bTitle =
+                (b.englishTitle != null && b.englishTitle!.isNotEmpty)
+                    ? b.englishTitle!
+                    : b.title;
+            return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
+          });
+          setState(() {
+            _songs = filtered;
+            _generateAvailableAlphabet();
+            _filterSongs();
+          });
+        }).catchError((_) {});
       }
     } catch (e) {
       if (!mounted) return;
@@ -314,155 +338,57 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
               ),
             ],
           ),
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-            child: Row(
+          SongListControlsBar(
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            searchHint: 'Search songs…',
+            fontSize: _fontSize,
+            onFontSizeChanged: (v) => setState(() => _fontSize = v),
+            syncLabel: 'Sync',
+            onSync: () async {
+              _performVibration();
+              if (!await ConnectivityGuard.ensureOnline(context,
+                  message:
+                      'Sync needs internet to download the latest Kannada songs.')) {
+                return;
+              }
+              setState(() => _isLoading = true);
+              try {
+                await LocalDatabaseService.instance.syncKannadaFromSupabase(
+                    forceFullResync: true, throwOnError: true);
+                await LocalDatabaseService.instance.removeUnwantedKannadaSongs();
+                final fetched = await LocalDatabaseService.instance
+                    .fetchAllKannadaSongs(allowNetwork: false);
+                if (!mounted) return;
+                final filtered = _filterInvalidSongs(fetched);
+                filtered.sort((a, b) {
+                  final aTitle =
+                      (a.englishTitle != null && a.englishTitle!.isNotEmpty)
+                          ? a.englishTitle!
+                          : a.title;
+                  final bTitle =
+                      (b.englishTitle != null && b.englishTitle!.isNotEmpty)
+                          ? b.englishTitle!
+                          : b.title;
+                  return aTitle.toLowerCase().compareTo(bTitle.toLowerCase());
+                });
+                setState(() {
+                  _songs = filtered;
+                  _generateAvailableAlphabet();
+                  _filterSongs();
+                  _isLoading = false;
+                });
+              } catch (e) {
+                if (!mounted) return;
+                setState(() {
+                  _error = 'Sync failed: $e';
+                  _isLoading = false;
+                });
+              }
+            },
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    textCapitalization: TextCapitalization.sentences,
-                    onTap: () {
-                      // Clear any unwanted cached text when user taps the search field
-                      if (_searchController.text.contains('christian') ||
-                          _searchController.text.contains('lyrics')) {
-                        _searchController.clear();
-                      }
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Search songs...',
-                      prefixIcon: Icon(Icons.search),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: Icon(Icons.clear),
-                              onPressed: () {
-                                _performVibration();
-                                _searchController.clear();
-                                FocusScope.of(context).unfocus();
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0)),
-                      filled: true,
-                      fillColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceVariant
-                          .withAlpha(80),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Material(
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.circular(24),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.remove, size: 20),
-                        tooltip: 'Decrease font size',
-                        onPressed: () {
-                          _performVibration();
-                          setState(() {
-                            if (_fontSize > 12) _fontSize -= 2;
-                          });
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: Text(
-                          _fontSize.toInt().toString(),
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.add, size: 20),
-                        tooltip: 'Increase font size',
-                        onPressed: () {
-                          _performVibration();
-                          setState(() {
-                            if (_fontSize < 28) _fontSize += 2;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Language Switcher Chips
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12.0),
-            child: Row(
-              children: [
-                // Sync Songs (same row as chips)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0),
-                  child: TextButton.icon(
-                    onPressed: () async {
-                      _performVibration();
-                      setState(() => _isLoading = true);
-                      try {
-                        await LocalDatabaseService.instance
-                            .syncKannadaFromSupabase(
-                                forceFullResync: true, throwOnError: true);
-                        await LocalDatabaseService.instance
-                            .removeUnwantedKannadaSongs();
-                        final fetched = await LocalDatabaseService.instance
-                            .fetchAllKannadaSongs();
-                        if (!mounted) return;
-
-                        final filtered = _filterInvalidSongs(fetched);
-
-                        // Sort alphabetically: prioritize englishTitle for sorting if available
-                        filtered.sort((a, b) {
-                          final aTitle = (a.englishTitle != null &&
-                                  a.englishTitle!.isNotEmpty)
-                              ? a.englishTitle!
-                              : a.title;
-                          final bTitle = (b.englishTitle != null &&
-                                  b.englishTitle!.isNotEmpty)
-                              ? b.englishTitle!
-                              : b.title;
-                          return aTitle
-                              .toLowerCase()
-                              .compareTo(bTitle.toLowerCase());
-                        });
-
-                        setState(() {
-                          _songs = filtered;
-                          _generateAvailableAlphabet();
-                          _filterSongs();
-                          _isLoading = false;
-                        });
-                      } catch (e) {
-                        if (!mounted) return;
-                        setState(() {
-                          _error = 'Sync failed: $e';
-                          _isLoading = false;
-                        });
-                      }
-                    },
-                    icon: const Icon(Icons.sync_rounded, size: 18),
-                    label: const Text('Sync',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.primary,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withAlpha(90),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                    ),
-                  ),
-                ),
-                const Spacer(),
                 _buildTitleLanguageChip(
                   context: context,
                   label: 'English',
@@ -474,7 +400,7 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                     }
                   },
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 _buildTitleLanguageChip(
                   context: context,
                   label: 'Kannada',
@@ -486,49 +412,14 @@ class _KannadaSongListScreenState extends State<KannadaSongListScreen> {
                     }
                   },
                 ),
-                const SizedBox(width: 16),
               ],
             ),
           ),
-
-          // Kannada alphabet filter bar
-          SizedBox(
-            height: 48,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 10.0),
-              children: [
-                ..._availableAlphabet.map((letter) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                      child: ChoiceChip(
-                        label: Text(letter, style: TextStyle(fontSize: 18)),
-                        selected: _selectedLetter == letter,
-                        onSelected: (_) {
-                          _performVibration();
-                          _onLetterSelected(
-                              _selectedLetter == letter ? null : letter);
-                        },
-                        selectedColor: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withOpacity(0.18),
-                      ),
-                    )),
-                if (_selectedLetter != null)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8.0),
-                    child: ActionChip(
-                      label: Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _performVibration();
-                        _onLetterSelected(null);
-                      },
-                      backgroundColor:
-                          Theme.of(context).colorScheme.surfaceVariant,
-                    ),
-                  ),
-              ],
-            ),
+          SongListAlphabetBar(
+            letters: _kannadaAlphabet,
+            availableLetters: _availableAlphabet.toSet(),
+            selectedLetter: _selectedLetter,
+            onSelected: _onLetterSelected,
           ),
           const SizedBox(height: 2),
           Expanded(

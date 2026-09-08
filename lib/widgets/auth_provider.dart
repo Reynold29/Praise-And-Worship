@@ -35,11 +35,26 @@ class AuthProvider with ChangeNotifier {
 
   bool get isLoggedIn => _user != null;
   User? get currentUser => _user;
-  String? get email => _user?.email;
+
+  /// Best-effort email for master checks / UI (Google sometimes omits User.email).
+  String? get email {
+    final direct = _user?.email;
+    if (direct != null && direct.trim().isNotEmpty) return direct.trim();
+
+    final meta = _user?.userMetadata?['email'] as String?;
+    if (meta != null && meta.trim().isNotEmpty) return meta.trim();
+
+    for (final identity in _user?.identities ?? const <UserIdentity>[]) {
+      final idEmail = identity.identityData?['email'] as String?;
+      if (idEmail != null && idEmail.trim().isNotEmpty) return idEmail.trim();
+    }
+    return null;
+  }
+
   String? get displayName =>
       _user?.userMetadata?['full_name'] as String? ??
       _user?.userMetadata?['name'] as String? ??
-      _user?.email?.split('@').first;
+      email?.split('@').first;
 
   /// True only if any auth action is in progress.
   bool get loading => _loadingSource != AuthLoadingSource.none;

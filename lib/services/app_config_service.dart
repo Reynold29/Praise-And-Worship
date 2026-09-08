@@ -7,7 +7,6 @@ class AppConfigService {
   AppConfigService._();
   static final AppConfigService instance = AppConfigService._();
 
-  // ── Defaults used when the table cannot be reached ───────────────────────
   static const Map<String, String> _defaults = {
     'social_login_enabled': '1',
     'app_version_min': '1.0.0',
@@ -15,8 +14,6 @@ class AppConfigService {
     'whitelisted_qr_domains': 'projects.reyziehomelab.com',
   };
 
-  /// Returns all rows from `app_config` as a flat Map<key, value>.
-  /// Never throws — returns defaults on any error.
   Future<Map<String, String>> fetchAll() async {
     try {
       final client = Supabase.instance.client;
@@ -38,5 +35,14 @@ class AppConfigService {
       AppLogger.e('AppConfig', 'Failed to fetch config, using defaults', e);
       return Map<String, String>.from(_defaults);
     }
+  }
+
+  /// Upsert a single config key (master-only via RLS).
+  Future<void> upsert(String key, String value) async {
+    final client = Supabase.instance.client;
+    await client.from('app_config').upsert(
+      {'key': key, 'value': value},
+      onConflict: 'key',
+    );
   }
 }
