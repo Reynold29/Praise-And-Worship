@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -36,6 +38,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   bool _showTransliteration = false;
   bool _showEnglishTitle = true;
   bool _hideActions = false;
+  bool _showMasterFabs = true;
+  Timer? _masterFabHideTimer;
 
   // YouTube inline player state
   YoutubePlayerController? _ytController;
@@ -78,12 +82,29 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     if (_originalKeyFromDB == null || _originalKeyFromDB!.isEmpty) {
       _derivedKeyFromChords = _findOriginalKeyFromChords();
     }
+    _scheduleMasterFabHide();
   }
 
   @override
   void dispose() {
+    _masterFabHideTimer?.cancel();
     _ytController?.close();
     super.dispose();
+  }
+
+  void _bumpMasterFabVisibility() {
+    if (!_showMasterFabs) {
+      setState(() => _showMasterFabs = true);
+    }
+    _scheduleMasterFabHide();
+  }
+
+  void _scheduleMasterFabHide() {
+    _masterFabHideTimer?.cancel();
+    _masterFabHideTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || !_showMasterFabs) return;
+      setState(() => _showMasterFabs = false);
+    });
   }
 
   void _showQRShareDialog() async {
@@ -394,130 +415,156 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         ],
       ),
       backgroundColor: colorScheme.background,
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: EdgeInsets.only(
-              left: 16.0,
-              right: 16.0,
-              top: 12.0,
-              // When the YouTube player is visible, add its height so lyrics
-              // are scrollable past the overlay and fully accessible.
-              bottom: _showYoutubePlayer
-                  ? (MediaQuery.of(context).size.width / (16 / 9)) +
-                      56.0 + // approximate header height
-                      MediaQuery.of(context).padding.bottom +
-                      20.0 // extra breathing room
-                  : 20.0,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSongInfoCard(
-                  context,
-                  hasAnyChords,
-                  songId,
-                  songCategory,
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) {
+          if (isMaster) _bumpMasterFabVisibility();
+        },
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (isMaster && notification is ScrollUpdateNotification) {
+              _bumpMasterFabVisibility();
+            }
+            return false;
+          },
+          child: Stack(
+            children: [
+              SingleChildScrollView(
+                padding: EdgeInsets.only(
+                  left: 16.0,
+                  right: 16.0,
+                  top: 12.0,
+                  // When the YouTube player is visible, add its height so lyrics
+                  // are scrollable past the overlay and fully accessible.
+                  bottom: _showYoutubePlayer
+                      ? (MediaQuery.of(context).size.width / (16 / 9)) +
+                          56.0 + // approximate header height
+                          MediaQuery.of(context).padding.bottom +
+                          20.0 // extra breathing room
+                      : 20.0,
                 ),
-                const SizedBox(height: 16),
-                Card(
-                  elevation: 1,
-                  margin: EdgeInsets.zero,
-                  color: colorScheme.surfaceContainerLowest,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16.0)),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16.0, vertical: 20.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children:
-                          _buildSongLines(context, hasAnyChords, _fontSize),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSongInfoCard(
+                      context,
+                      hasAnyChords,
+                      songId,
+                      songCategory,
                     ),
-                  ),
-                ),
-                if (_authorForCopyright.isNotEmpty &&
-                    _authorForCopyright != 'UNKNOWN')
-                  Padding(
-                    padding: const EdgeInsets.only(top: 20.0, bottom: 5.0),
-                    child: Center(
-                      child: RichText(
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                              text: '© ',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant
-                                    .withOpacity(0.6),
-                                fontSize: 18, // Larger symbol
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            TextSpan(
-                              text: _authorForCopyright,
-                              style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant
-                                    .withOpacity(0.6),
-                                fontSize: textTheme.bodySmall?.fontSize,
-                              ),
-                            ),
-                          ],
+                    const SizedBox(height: 16),
+                    Card(
+                      elevation: 1,
+                      margin: EdgeInsets.zero,
+                      color: colorScheme.surfaceContainerLowest,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16.0)),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16.0, vertical: 20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: _buildSongLines(
+                              context, hasAnyChords, _fontSize),
                         ),
-                        textAlign: TextAlign.center,
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ),
+                    if (_authorForCopyright.isNotEmpty &&
+                        _authorForCopyright != 'UNKNOWN')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 20.0, bottom: 5.0),
+                        child: Center(
+                          child: RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: '© ',
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant
+                                        .withOpacity(0.6),
+                                    fontSize: 18, // Larger symbol
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: _authorForCopyright,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant
+                                        .withOpacity(0.6),
+                                    fontSize: textTheme.bodySmall?.fontSize,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
 
-          // Persistent YouTube overlay player (non-blocking)
-          if (_showYoutubePlayer && _ytController != null)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _buildInlineYoutubePlayer(context, colorScheme, textTheme),
-            ),
-        ],
+              // Persistent YouTube overlay player (non-blocking)
+              if (_showYoutubePlayer && _ytController != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _buildInlineYoutubePlayer(
+                      context, colorScheme, textTheme),
+                ),
+            ],
+          ),
+        ),
       ),
       floatingActionButton: isMaster
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton.small(
-                  heroTag: 'editBtn',
-                  onPressed: () async {
-                    _performVibration();
-                    if (!await ConnectivityGuard.ensureOnline(context,
-                        message: 'Editing a song needs an internet connection.',
-                        useDialog: true)) {
-                      return;
-                    }
-                    if (!mounted) return;
-                    await Navigator.of(context).push(
-                      snappyPageRoute(
-                        page: EditSongScreen(tabData: widget.tabData),
-                      ),
-                    );
-                  },
-                  child: const Icon(Icons.edit_rounded),
+          ? IgnorePointer(
+              ignoring: !_showMasterFabs,
+              child: AnimatedOpacity(
+                opacity: _showMasterFabs ? 1 : 0,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FloatingActionButton.small(
+                      heroTag: 'editBtn',
+                      onPressed: () async {
+                        _performVibration();
+                        _bumpMasterFabVisibility();
+                        if (!await ConnectivityGuard.ensureOnline(context,
+                            message:
+                                'Editing a song needs an internet connection.',
+                            useDialog: true)) {
+                          return;
+                        }
+                        if (!mounted) return;
+                        await Navigator.of(context).push(
+                          snappyPageRoute(
+                            page: EditSongScreen(tabData: widget.tabData),
+                          ),
+                        );
+                      },
+                      child: const Icon(Icons.edit_rounded),
+                    ),
+                    const SizedBox(height: 10),
+                    FloatingActionButton(
+                      heroTag: 'deleteBtn',
+                      onPressed: () {
+                        _performVibration();
+                        _bumpMasterFabVisibility();
+                        _confirmDeleteSong(context);
+                      },
+                      backgroundColor: colorScheme.errorContainer,
+                      foregroundColor: colorScheme.onErrorContainer,
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20)),
+                      child: const Icon(Icons.delete_forever_rounded),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                FloatingActionButton(
-                  heroTag: 'deleteBtn',
-                  onPressed: () {
-                    _performVibration();
-                    _confirmDeleteSong(context);
-                  },
-                  backgroundColor: colorScheme.errorContainer,
-                  foregroundColor: colorScheme.onErrorContainer,
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20)),
-                  child: const Icon(Icons.delete_forever_rounded),
-                ),
-              ],
+              ),
             )
           : null,
     );
@@ -896,63 +943,59 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                     const SizedBox(height: 6),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        const fontW = 140.0;
+                        const fontW = 168.0;
                         const gap = 8.0;
-                        const transposeMin = 196.0;
-                        final leftover = constraints.maxWidth - fontW - gap;
-                        final transposeW =
-                            leftover < transposeMin ? transposeMin : leftover;
-                        return SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          physics: const BouncingScrollPhysics(),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: fontW,
-                                child: _m3eStepper(
-                                  colorScheme: colorScheme,
-                                  value: _fontSize.toInt().toString(),
-                                  sideWidth: 40,
-                                  numberWidth: 56,
-                                  onMinus: () {
-                                    if (_fontSize > 12) {
-                                      _performVibration();
-                                      setState(() => _fontSize -= 2);
-                                    }
-                                  },
-                                  onPlus: () {
-                                    if (_fontSize < 36) {
-                                      _performVibration();
-                                      setState(() => _fontSize += 2);
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: gap),
-                              SizedBox(
-                                width: transposeW,
-                                child: _m3eStepper(
-                                  colorScheme: colorScheme,
-                                  leadingLabel: 'Transpose',
-                                  value: _transposeSemitones == 0
-                                      ? '0'
-                                      : '${_transposeSemitones > 0 ? '+' : ''}$_transposeSemitones',
-                                  enabled: transposeEnabled,
-                                  sideWidth: 36,
-                                  numberWidth: 48,
-                                  labelWidth: 86,
-                                  onMinus: () {
+                        final leftover =
+                            (constraints.maxWidth - fontW - gap).clamp(120.0, 400.0);
+                        return Row(
+                          children: [
+                            SizedBox(
+                              width: fontW,
+                              child: _m3eStepper(
+                                colorScheme: colorScheme,
+                                leadingLabel: 'Font',
+                                value: _fontSize.toInt().toString(),
+                                sideWidth: 36,
+                                numberWidth: 40,
+                                labelWidth: 48,
+                                onMinus: () {
+                                  if (_fontSize > 12) {
                                     _performVibration();
-                                    setState(() => _transposeSemitones--);
-                                  },
-                                  onPlus: () {
+                                    setState(() => _fontSize -= 2);
+                                  }
+                                },
+                                onPlus: () {
+                                  if (_fontSize < 36) {
                                     _performVibration();
-                                    setState(() => _transposeSemitones++);
-                                  },
-                                ),
+                                    setState(() => _fontSize += 2);
+                                  }
+                                },
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: gap),
+                            SizedBox(
+                              width: leftover,
+                              child: _m3eStepper(
+                                colorScheme: colorScheme,
+                                leadingLabel: 'Tp',
+                                value: _transposeSemitones == 0
+                                    ? '0'
+                                    : '${_transposeSemitones > 0 ? '+' : ''}$_transposeSemitones',
+                                enabled: transposeEnabled,
+                                sideWidth: 36,
+                                numberWidth: 40,
+                                labelWidth: 36,
+                                onMinus: () {
+                                  _performVibration();
+                                  setState(() => _transposeSemitones--);
+                                },
+                                onPlus: () {
+                                  _performVibration();
+                                  setState(() => _transposeSemitones++);
+                                },
+                              ),
+                            ),
+                          ],
                         );
                       },
                     ),
@@ -1245,14 +1288,14 @@ class ChordLyricLine extends StatelessWidget {
       fontSize: fontSize,
       height: 1.6,
       letterSpacing: 0.2,
-      fontFamily: 'monospace',
+      fontFamily: 'ProductSans',
     );
     final chordStyle = textTheme.titleSmall?.copyWith(
       color: colorScheme.primary,
       fontWeight: FontWeight.bold,
       letterSpacing: 0.5,
       fontSize: fontSize - 1,
-      fontFamily: 'monospace',
+      fontFamily: 'ProductSans',
     );
 
     // Preserve blank lines between verses (do not drop empty lyric rows).
@@ -1285,8 +1328,16 @@ class ChordLyricLine extends StatelessWidget {
           fontWeight: FontWeight.bold,
           letterSpacing: 0.5,
           fontSize: 15,
+          fontFamily: 'ProductSans',
         ) ??
-        const TextStyle();
+        const TextStyle(fontFamily: 'ProductSans');
+
+    final spacePainter = TextPainter(
+      text: TextSpan(text: ' ', style: effectiveChordStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final spaceWidth = spacePainter.width.clamp(4.0, 14.0);
+    spacePainter.dispose();
 
     List<Widget> chordWidgets = [];
     int currentTextPos = 0;
@@ -1297,12 +1348,14 @@ class ChordLyricLine extends StatelessWidget {
 
       if (note.isNotEmpty) {
         if (preSpaces > currentTextPos) {
-          chordWidgets.add(SizedBox(width: (preSpaces - currentTextPos) * 7.0));
+          chordWidgets.add(
+              SizedBox(width: (preSpaces - currentTextPos) * spaceWidth));
         }
         chordWidgets.add(Text(note, style: effectiveChordStyle));
         currentTextPos = preSpaces + note.length;
       } else if (preSpaces > currentTextPos) {
-        chordWidgets.add(SizedBox(width: (preSpaces - currentTextPos) * 7.0));
+        chordWidgets
+            .add(SizedBox(width: (preSpaces - currentTextPos) * spaceWidth));
         currentTextPos = preSpaces;
       }
     }

@@ -259,10 +259,9 @@ class SongIdentityBlock extends StatelessWidget {
                     children: [
                       Text('👤', style: metaStyle?.copyWith(fontSize: 13)),
                       const SizedBox(width: 4),
-                      Text('Singer: ', style: metaStyle),
                       Expanded(
                         child: _MarqueeName(
-                          text: authorLabel!,
+                          text: 'Singer: $authorLabel',
                           style: metaStyle,
                         ),
                       ),
@@ -325,7 +324,9 @@ class _MarqueeNameState extends State<_MarqueeName>
           maxLines: 1,
           textDirection: TextDirection.ltr,
         )..layout();
-        final extra = painter.width - constraints.maxWidth;
+        final textWidth = painter.width;
+        final viewport = constraints.maxWidth;
+        final extra = textWidth - viewport;
         painter.dispose();
 
         if (extra <= 0) {
@@ -340,6 +341,7 @@ class _MarqueeNameState extends State<_MarqueeName>
           return Text(
             widget.text,
             maxLines: 1,
+            softWrap: false,
             overflow: TextOverflow.clip,
             style: widget.style,
           );
@@ -347,7 +349,7 @@ class _MarqueeNameState extends State<_MarqueeName>
 
         if (!_controller.isAnimating) {
           _controller.duration = Duration(
-            milliseconds: (2400 + extra * 18).round().clamp(2400, 8000),
+            milliseconds: (2400 + extra * 22).round().clamp(2400, 10000),
           );
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && !_controller.isAnimating) {
@@ -356,24 +358,32 @@ class _MarqueeNameState extends State<_MarqueeName>
           });
         }
 
+        // Paint the full unclipped text width, then slide it through the
+        // viewport so long names are never truncated mid-character.
         return ClipRect(
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              final t = Curves.easeInOut.transform(_controller.value);
-              return Transform.translate(
-                offset: Offset(-extra * t, 0),
-                child: child,
-              );
-            },
-            child: Align(
-              alignment: Alignment.centerLeft,
-              widthFactor: 1,
-              child: Text(
-                widget.text,
-                maxLines: 1,
-                softWrap: false,
-                style: widget.style,
+          child: SizedBox(
+            width: viewport,
+            height: (widget.style?.fontSize ?? 12) * 1.35,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                final t = Curves.easeInOut.transform(_controller.value);
+                return Transform.translate(
+                  offset: Offset(-extra * t, 0),
+                  child: child,
+                );
+              },
+              child: OverflowBox(
+                minWidth: textWidth,
+                maxWidth: textWidth,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  widget.text,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
+                  style: widget.style,
+                ),
               ),
             ),
           ),
