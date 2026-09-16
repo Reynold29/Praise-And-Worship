@@ -11,10 +11,21 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Worship Companion" />
+  <meta name="description" content="Open a shared playlist with Worship Companion." />
+  <meta property="og:site_name" content="Worship Companion" />
+  <meta property="og:type" content="music.playlist" />
+  <meta property="og:title" content="Worship Companion — Playlist" />
+  <meta property="og:description" content="Open a shared playlist with Worship Companion." />
+  <meta property="og:image" content="../og-card.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Worship Companion — Playlist" />
+  <meta name="twitter:description" content="Open a shared playlist with Worship Companion." />
+  <meta name="twitter:image" content="../og-card.png" />
+  <link rel="canonical" href="" />
   <link rel="manifest" href="../manifest.json" />
   <title>Worship Companion — Playlist</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../config.js"></script>
@@ -23,20 +34,24 @@
 <body>
   <main class="page">
     <div class="brand">Worship Companion</div>
+    <div id="openAppBanner"></div>
     <div id="content" class="status">Opening playlist…</div>
   </main>
   <div class="download-bar"><div class="download-inner" id="storeBar"></div></div>
   <script>
     const id = new URLSearchParams(location.search).get("id");
     const content = document.getElementById("content");
-    storeButtons(document.getElementById("storeBar"));
-    tryOpenApp();
 
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, (c) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-      }[c]));
-    }
+    setShareMeta({
+      title: "Worship Companion — Playlist",
+      description: "Open a shared playlist with Worship Companion.",
+      url: location.href,
+      type: "music.playlist",
+    });
+
+    storeButtons(document.getElementById("storeBar"));
+    renderOpenAppBanner(document.getElementById("openAppBanner"));
+    // Do not auto-open the app on page load — that caused Chrome↔app loops.
 
     if (!id) {
       content.className = "error";
@@ -44,6 +59,8 @@
     } else {
       const client = createClient();
       let channels = [];
+      let latestSongs = [];
+      let playlistName = "Playlist";
 
       async function fetchSongsFor(entries) {
         const byLang = { english: [], kannada: [], other: [] };
@@ -66,11 +83,63 @@
           return {
             title: song?.title || "Song unavailable",
             author: song?.author_name || "",
+            lang: song?._lang || "other",
             href: song
               ? `../lyrics/?l=${encodeURIComponent(song._lang)}&id=${encodeURIComponent(song.id)}`
               : null,
           };
         });
+      }
+
+      function songMatchesQuery(song, query) {
+        if (!query) return true;
+        const hay = (song.title + " " + song.author + " " + song.lang).toLowerCase();
+        return hay.includes(query);
+      }
+
+      function renderList(songs, query) {
+        const filtered = songs.filter((s) => songMatchesQuery(s, query));
+        const list = document.getElementById("songList");
+        const count = document.getElementById("songCount");
+        const empty = document.getElementById("emptyFilter");
+        if (!list || !count) return;
+
+        count.textContent =
+          (query ? filtered.length + " of " + songs.length : String(songs.length)) +
+          " song" +
+          (songs.length === 1 ? "" : "s");
+
+        if (!filtered.length) {
+          list.innerHTML = "";
+          if (empty) empty.hidden = false;
+          return;
+        }
+        if (empty) empty.hidden = true;
+
+        list.innerHTML = filtered.map((s) => s.href
+          ? `<a class="row" href="${s.href}">
+              <div class="row-main">
+                <strong>${escapeHtml(s.title)}</strong>
+                <span>${escapeHtml(s.author)}</span>
+              </div>
+              <span class="chip">${langChip(s.lang)}</span>
+            </a>`
+          : `<div class="row">
+              <div class="row-main">
+                <strong>${escapeHtml(s.title)}</strong>
+              </div>
+              <span class="chip">--</span>
+            </div>`
+        ).join("");
+      }
+
+      function wireSearch() {
+        const input = document.getElementById("playlistSearch");
+        if (!input) return;
+        const onSearch = debounce(() => {
+          renderList(latestSongs, input.value.trim().toLowerCase());
+        }, 120);
+        input.addEventListener("input", onSearch);
       }
 
       async function load() {
@@ -83,6 +152,12 @@
         if (error || !playlist) {
           content.className = "error";
           content.textContent = "Playlist not found. Cloud playlists can be opened here after the owner signs in.";
+          setShareMeta({
+            title: "Playlist not found — Worship Companion",
+            description: "This playlist link could not be opened.",
+            url: location.href,
+            type: "music.playlist",
+          });
           return;
         }
         const { data: entries } = await client
@@ -90,19 +165,42 @@
           .select("song_id,category,added_at")
           .eq("playlist_id", id)
           .order("added_at", { ascending: true });
-        const songs = await fetchSongsFor(entries || []);
-        document.title = playlist.name + " — Worship Companion";
+        latestSongs = await fetchSongsFor(entries || []);
+        playlistName = playlist.name || "Playlist";
+
+        setShareMeta({
+          title: playlistName + " — Worship Companion",
+          description:
+            latestSongs.length +
+            " song" +
+            (latestSongs.length === 1 ? "" : "s") +
+            " · Shared playlist from Worship Companion",
+          url: location.href,
+          type: "music.playlist",
+        });
+
         content.className = "";
         content.innerHTML = `
-          <h1>${escapeHtml(playlist.name)}</h1>
-          <div class="meta">${songs.length} song${songs.length === 1 ? "" : "s"}</div>
-          <div class="list">
-            ${songs.map((s) => s.href
-              ? `<a class="row" href="${s.href}"><strong>${escapeHtml(s.title)}</strong><span>${escapeHtml(s.author)}</span></a>`
-              : `<div class="row"><strong>${escapeHtml(s.title)}</strong></div>`
-            ).join("")}
+          <h1>${escapeHtml(playlistName)}</h1>
+          <div class="meta-row">
+            <div class="meta" id="songCount">${latestSongs.length} song${latestSongs.length === 1 ? "" : "s"}</div>
           </div>
+          <div class="search-wrap">
+            <input
+              id="playlistSearch"
+              class="search-input"
+              type="search"
+              placeholder="Search songs or authors"
+              autocomplete="off"
+              enterkeyhint="search"
+              aria-label="Search songs or authors"
+            />
+          </div>
+          <div class="list" id="songList"></div>
+          <div class="empty-filter" id="emptyFilter" hidden>No songs match that search.</div>
         `;
+        wireSearch();
+        renderList(latestSongs, "");
       }
 
       const debouncedLoad = debounce(load, 400);

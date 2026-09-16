@@ -178,6 +178,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late final Connectivity _connectivity;
   late final Stream<List<ConnectivityResult>> _connectivityStream;
   late final AppLinks _appLinks;
+  String? _lastHandledLink;
+  DateTime? _lastHandledAt;
+  bool _isHandlingLink = false;
 
   @override
   void initState() {
@@ -207,7 +210,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     try {
       final initialUri = await _appLinks.getInitialLink();
       if (initialUri != null) {
-        _handleLink(initialUri.toString());
+        await _handleLink(initialUri.toString());
       }
     } catch (e) {
       AppLogger.e('App', 'Failed to get initial link', e);
@@ -236,7 +239,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   'projects.reyziehomelab.com/worshipcompanion/playlist'))) {
         AppLogger.d('App', 'Found deferred deep link in clipboard: $text');
         // Wait for Navigator
-        _handleLink(text);
+        await _handleLink(text);
         // Clear clipboard to avoid re-opening on next launch
         // We only clear if it's OUR specific link
         await Clipboard.setData(const ClipboardData(text: ''));
@@ -252,6 +255,19 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _handleLink(String url) async {
+    final now = DateTime.now();
+    // Cold start often delivers the same URI via getInitialLink + uriLinkStream.
+    if (_lastHandledLink == url &&
+        _lastHandledAt != null &&
+        now.difference(_lastHandledAt!) < const Duration(seconds: 4)) {
+      AppLogger.d('App', 'Ignoring duplicate deep link: $url');
+      return;
+    }
+    if (_isHandlingLink) {
+      AppLogger.d('App', 'Deep link already in progress — skipping: $url');
+      return;
+    }
+
     AppLogger.d('App', 'Processing deep link: $url');
     final uri = Uri.tryParse(url);
     // OAuth redirects must not go through the QR router (that showed
@@ -262,18 +278,26 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       return;
     }
 
-    // Wait for Navigator to be ready if needed
-    int retries = 0;
-    while (navigatorKey.currentContext == null && retries < 15) {
-      await Future.delayed(const Duration(milliseconds: 200));
-      retries++;
-    }
+    _lastHandledLink = url;
+    _lastHandledAt = now;
+    _isHandlingLink = true;
 
-    if (mounted) {
-      QRRouterService.instance.handleUrl(
-        navigatorKey.currentContext ?? context,
-        url,
-      );
+    try {
+      // Wait for Navigator to be ready if needed
+      int retries = 0;
+      while (navigatorKey.currentContext == null && retries < 15) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        retries++;
+      }
+
+      if (mounted) {
+        await QRRouterService.instance.handleUrl(
+          navigatorKey.currentContext ?? context,
+          url,
+        );
+      }
+    } finally {
+      _isHandlingLink = false;
     }
   }
 

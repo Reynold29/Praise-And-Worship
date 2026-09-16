@@ -11,10 +11,21 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Worship Companion" />
+  <meta name="description" content="Open song lyrics with Worship Companion." />
+  <meta property="og:site_name" content="Worship Companion" />
+  <meta property="og:type" content="music.song" />
+  <meta property="og:title" content="Worship Companion — Lyrics" />
+  <meta property="og:description" content="Open song lyrics with Worship Companion." />
+  <meta property="og:image" content="../og-card.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Worship Companion — Lyrics" />
+  <meta name="twitter:description" content="Open song lyrics with Worship Companion." />
+  <meta name="twitter:image" content="../og-card.png" />
+  <link rel="canonical" href="" />
   <link rel="manifest" href="../manifest.json" />
   <title>Worship Companion — Lyrics</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../shared.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../config.js"></script>
@@ -23,6 +34,7 @@
 <body>
   <main class="page">
     <div class="brand">Worship Companion</div>
+    <div id="openAppBanner"></div>
     <div id="content" class="status">Opening lyrics…</div>
   </main>
   <div class="download-bar"><div class="download-inner" id="storeBar"></div></div>
@@ -31,8 +43,19 @@
     const lang = (params.get("l") || "english").toLowerCase();
     const id = params.get("id");
     const content = document.getElementById("content");
+    const root = document.documentElement;
+    const reduceMotion = prefersReducedMotion();
+
+    setShareMeta({
+      title: "Worship Companion — Lyrics",
+      description: "Open song lyrics with Worship Companion.",
+      url: location.href,
+      type: "music.song",
+    });
+
     storeButtons(document.getElementById("storeBar"));
-    tryOpenApp();
+    renderOpenAppBanner(document.getElementById("openAppBanner"));
+    // Do not auto-open the app on page load — that caused Chrome↔app loops.
 
     if (!id) {
       content.className = "error";
@@ -41,27 +64,158 @@
       const client = createClient();
       const table = tableForLang(lang);
       let channel;
+      let autoScrollTimer = null;
+      let fontPx = Number(localStorage.getItem("wc_lyrics_font_px") || 17);
+      let lightTheme = localStorage.getItem("wc_web_theme") === "light";
+
+      if (!Number.isFinite(fontPx) || fontPx < 14 || fontPx > 30) {
+        fontPx = 17;
+      }
+      root.style.setProperty("--font-size", fontPx + "px");
+      if (lightTheme) {
+        root.setAttribute("data-theme", "light");
+      }
+
+      function applyThemeButtonLabel() {
+        const themeBtn = document.getElementById("themeToggle");
+        if (themeBtn) {
+          themeBtn.textContent = lightTheme ? "Dark" : "Light";
+        }
+      }
+
+      function stopAutoScroll() {
+        if (autoScrollTimer) clearInterval(autoScrollTimer);
+        autoScrollTimer = null;
+        const autoBtn = document.getElementById("autoScrollToggle");
+        if (autoBtn) autoBtn.textContent = "Auto Scroll";
+      }
+
+      function toggleAutoScroll() {
+        const autoBtn = document.getElementById("autoScrollToggle");
+        if (autoScrollTimer) {
+          stopAutoScroll();
+          return;
+        }
+        if (reduceMotion) {
+          // Jump in larger steps instead of continuous animation.
+          window.scrollBy({ top: Math.max(180, window.innerHeight * 0.7), left: 0, behavior: "auto" });
+          return;
+        }
+        autoScrollTimer = setInterval(() => {
+          window.scrollBy({ top: 1.2, left: 0, behavior: "auto" });
+          const nearBottom =
+            window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+          if (nearBottom) stopAutoScroll();
+        }, 22);
+        if (autoBtn) autoBtn.textContent = "Stop Scroll";
+      }
+
+      function updateFont(nextPx) {
+        fontPx = Math.max(14, Math.min(30, nextPx));
+        root.style.setProperty("--font-size", fontPx + "px");
+        localStorage.setItem("wc_lyrics_font_px", String(fontPx));
+      }
 
       function render(song) {
         if (!song) {
           content.className = "error";
           content.textContent = "Song not found.";
+          setShareMeta({
+            title: "Song not found — Worship Companion",
+            description: "This lyrics link could not be opened.",
+            url: location.href,
+            type: "music.song",
+          });
           return;
         }
         const author = song.author_name && song.author_name !== "UNKNOWN" ? song.author_name : "";
+        const title = song.title || "Untitled";
+        const descParts = [];
+        if (author) descParts.push(author);
+        if (song.key_signature) descParts.push("Key " + song.key_signature);
+        descParts.push("Open lyrics in Worship Companion");
+
         content.className = "";
         content.innerHTML = `
-          <h1>${escapeHtml(song.title || "Untitled")}</h1>
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <a href="#" class="btn tonal icon" id="fontDown" aria-label="Decrease font">A-</a>
+              <a href="#" class="btn tonal icon" id="fontUp" aria-label="Increase font">A+</a>
+            </div>
+            <div class="toolbar-group">
+              <a href="#" class="btn tonal" id="autoScrollToggle">${reduceMotion ? "Scroll Down" : "Auto Scroll"}</a>
+              <a href="#" class="btn tonal" id="themeToggle">Light</a>
+              <a href="#" class="btn tonal" id="copyLyrics">Copy Lyrics</a>
+            </div>
+          </div>
+          <h1>${escapeHtml(title)}</h1>
           <div class="meta">${author ? "Author: " + escapeHtml(author) : ""}${song.key_signature ? " · Key: " + escapeHtml(song.key_signature) : ""}</div>
           <div class="card">${escapeHtml(song.lyrics || "")}</div>
         `;
-        document.title = (song.title || "Song") + " — Worship Companion";
-      }
 
-      function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, (c) => ({
-          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-        }[c]));
+        setShareMeta({
+          title: title + " — Worship Companion",
+          description: descParts.join(" · "),
+          url: location.href,
+          type: "music.song",
+        });
+        applyThemeButtonLabel();
+
+        const down = document.getElementById("fontDown");
+        const up = document.getElementById("fontUp");
+        const auto = document.getElementById("autoScrollToggle");
+        const theme = document.getElementById("themeToggle");
+        const copy = document.getElementById("copyLyrics");
+
+        if (down) {
+          down.addEventListener("click", (e) => {
+            e.preventDefault();
+            updateFont(fontPx - 1);
+          });
+        }
+        if (up) {
+          up.addEventListener("click", (e) => {
+            e.preventDefault();
+            updateFont(fontPx + 1);
+          });
+        }
+        if (auto) {
+          auto.addEventListener("click", (e) => {
+            e.preventDefault();
+            toggleAutoScroll();
+          });
+        }
+        if (theme) {
+          theme.addEventListener("click", (e) => {
+            e.preventDefault();
+            lightTheme = !lightTheme;
+            if (lightTheme) {
+              root.setAttribute("data-theme", "light");
+              localStorage.setItem("wc_web_theme", "light");
+            } else {
+              root.removeAttribute("data-theme");
+              localStorage.setItem("wc_web_theme", "dark");
+            }
+            applyThemeButtonLabel();
+          });
+        }
+        if (copy) {
+          copy.addEventListener("click", async (e) => {
+            e.preventDefault();
+            try {
+              await navigator.clipboard.writeText(song.lyrics || "");
+              copy.textContent = "Copied";
+              setTimeout(() => {
+                copy.textContent = "Copy Lyrics";
+              }, 1200);
+            } catch (_) {
+              copy.textContent = "Copy Failed";
+              setTimeout(() => {
+                copy.textContent = "Copy Lyrics";
+              }, 1200);
+            }
+          });
+        }
       }
 
       async function fetchSong() {
@@ -84,6 +238,7 @@
       startLive();
       document.addEventListener("visibilitychange", () => {
         if (document.hidden) {
+          stopAutoScroll();
           if (channel) client.removeChannel(channel);
           channel = null;
         } else {

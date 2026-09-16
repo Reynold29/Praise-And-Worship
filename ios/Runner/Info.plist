@@ -38,6 +38,16 @@
 				<string>io.supabase.worshipcompanion</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.reyzie.worshipcompanion.open</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>worshipcompanion</string>
+			</array>
+		</dict>
 	</array>
 
 	<!-- ── Privacy usage descriptions (App Store review requirement) ─────────── -->

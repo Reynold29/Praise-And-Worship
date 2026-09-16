@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../widgets/auth_provider.dart';
 import '../widgets/app_config_provider.dart';
+import '../utils/connectivity_guard.dart';
 
 /// Full-screen authentication sheet.
 /// Google sign-in is the primary CTA; email/password is secondary.
@@ -194,6 +195,13 @@ class _AuthFormState extends State<_AuthForm> {
 
   Future<void> _submitEmail(AuthProvider auth) async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!await ConnectivityGuard.ensureOnline(
+      context,
+      message: ConnectivityGuard.networkFailureMessage('Signing in'),
+    )) {
+      return;
+    }
+    if (!mounted) return;
     auth.clearError();
 
     if (widget.isRegister) {
@@ -224,6 +232,13 @@ class _AuthFormState extends State<_AuthForm> {
   }
 
   Future<void> _submitGoogle(AuthProvider auth) async {
+    if (!await ConnectivityGuard.ensureOnline(
+      context,
+      message: ConnectivityGuard.networkFailureMessage('Google sign-in'),
+    )) {
+      return;
+    }
+    if (!mounted) return;
     auth.clearError();
     await auth.signInWithGoogle();
     // Google is an external OAuth — the browser opens and returns via URL
@@ -236,6 +251,13 @@ class _AuthFormState extends State<_AuthForm> {
   }
 
   Future<void> _submitApple(AuthProvider auth) async {
+    if (!await ConnectivityGuard.ensureOnline(
+      context,
+      message: ConnectivityGuard.networkFailureMessage('Apple sign-in'),
+    )) {
+      return;
+    }
+    if (!mounted) return;
     auth.clearError();
     await auth.signInWithApple();
     // Native Apple Sign-In is synchronous — we get the result immediately.

@@ -5,4 +5,6 @@ window.WC_CONFIG = {
   playStoreUrl:
     "https://play.google.com/store/apps/details?id=com.reyzie.worshipcompanion",
   appStoreUrl: "https://apps.apple.com/app/id6759990066",
+  // Absolute when hosted; relative fallback resolves against the current page.
+  ogImage: "../og-card.png",
 };

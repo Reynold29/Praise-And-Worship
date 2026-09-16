@@ -28,6 +28,23 @@ class QRRouterService {
         return;
       }
 
+      // Custom scheme from web "Open In App" (esp. iOS without Universal Links).
+      // worshipcompanion://lyrics?l=&id=  /  worshipcompanion://playlist?id=
+      if (uri.scheme == 'worshipcompanion') {
+        final host = uri.host.toLowerCase();
+        AppLogger.d('QRRouter', 'Custom scheme host=$host query=${uri.query}');
+        if (host == 'playlist') {
+          await _openPlaylist(context, uri);
+          return;
+        }
+        if (host == 'lyrics' || host == 'song') {
+          await _openSong(context, uri);
+          return;
+        }
+        AppLogger.w('QRRouter', 'Unknown worshipcompanion host: $host');
+        return;
+      }
+
       final config = Provider.of<AppConfigProvider>(context, listen: false);
 
       final host = uri.host.toLowerCase();

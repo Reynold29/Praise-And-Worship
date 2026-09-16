@@ -444,12 +444,13 @@ class _SettingsPageState extends State<SettingsPage> {
 
           // ── Developer Options ──────────────────────────────────────────
           _SectionLabel(label: 'Advanced'),
-          Container(
-            decoration: BoxDecoration(
-              color: colorScheme.errorContainer.withOpacity(0.25),
+          Material(
+            color: colorScheme.errorContainer.withOpacity(0.25),
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: colorScheme.error.withOpacity(0.2)),
+              side: BorderSide(color: colorScheme.error.withOpacity(0.2)),
             ),
+            clipBehavior: Clip.antiAlias,
             child: ListTile(
               leading:
                   Icon(Icons.warning_amber_rounded, color: colorScheme.error),
@@ -1071,12 +1072,13 @@ class DeveloperOptionsPage extends StatelessWidget {
                 style: textTheme.bodySmall
                     ?.copyWith(color: colorScheme.onSurfaceVariant)),
             const SizedBox(height: 20),
-            Container(
-              decoration: BoxDecoration(
-                color: colorScheme.errorContainer.withOpacity(0.2),
+            Material(
+              color: colorScheme.errorContainer.withOpacity(0.2),
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: colorScheme.error.withOpacity(0.3)),
+                side: BorderSide(color: colorScheme.error.withOpacity(0.3)),
               ),
+              clipBehavior: Clip.antiAlias,
               child: ListTile(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),

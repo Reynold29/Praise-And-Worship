@@ -1,5 +1,7 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
 const Color _kQrInk = Color(0xFF0B3D91);
 
@@ -79,7 +81,52 @@ void showShareQrDialog({
                       textAlign: TextAlign.center,
                     ),
                   ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                SelectableText(
+                  qrUrl,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.3,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: qrUrl));
+                          if (!dialogContext.mounted) return;
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            const SnackBar(content: Text('Link copied')),
+                          );
+                        },
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                        label: const Text('Copy Link'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: () async {
+                          final shareText = detail != null && detail.isNotEmpty
+                              ? '$caption\n$detail\n$qrUrl'
+                              : '$caption\n$qrUrl';
+                          await SharePlus.instance.share(
+                            ShareParams(
+                              text: shareText,
+                              subject: heading,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.ios_share_rounded, size: 18),
+                        label: const Text('Share'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(

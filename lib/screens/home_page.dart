@@ -24,6 +24,7 @@ import 'package:worshipcompanion/widgets/app_config_provider.dart';
 import 'package:worshipcompanion/screens/auth_screen.dart';
 import 'package:worshipcompanion/widgets/sync_dialog.dart';
 import 'package:worshipcompanion/utils/app_logger.dart';
+import 'package:worshipcompanion/utils/connectivity_guard.dart';
 
 class _ExploreThumbs extends StatelessWidget {
   const _ExploreThumbs();
@@ -233,28 +234,65 @@ Widget _buildAvatar({
   required double iconSize,
   required ColorScheme colorScheme,
 }) {
+  Widget fallbackIcon() => Icon(
+        Icons.account_circle_rounded,
+        color: colorScheme.onPrimaryContainer,
+        size: iconSize * 0.7,
+      );
+
   Widget avatar;
   if (localPath != null && localPath.isNotEmpty) {
     avatar = CircleAvatar(
       radius: radius,
       backgroundColor: colorScheme.primaryContainer,
-      backgroundImage: FileImage(File(localPath)),
+      child: ClipOval(
+        child: Image.file(
+          File(localPath),
+          width: radius * 2,
+          height: radius * 2,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallbackIcon(),
+        ),
+      ),
     );
   } else if (googleUrl != null && googleUrl.isNotEmpty) {
+    // Image.network + errorBuilder avoids framework image exceptions when DNS
+    // fails (e.g. lh3.googleusercontent.com host lookup).
     avatar = CircleAvatar(
       radius: radius,
       backgroundColor: colorScheme.primaryContainer,
-      backgroundImage: NetworkImage(googleUrl),
+      child: ClipOval(
+        child: Image.network(
+          googleUrl,
+          width: radius * 2,
+          height: radius * 2,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallbackIcon(),
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return SizedBox(
+              width: radius * 2,
+              height: radius * 2,
+              child: Center(
+                child: SizedBox(
+                  width: radius * 0.7,
+                  height: radius * 0.7,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   } else {
     avatar = CircleAvatar(
       radius: radius,
       backgroundColor: colorScheme.primaryContainer,
-      child: Icon(
-        Icons.account_circle_rounded,
-        color: colorScheme.onPrimaryContainer,
-        size: iconSize * 0.7, // slightly smaller so it doesn't clip
-      ),
+      child: fallbackIcon(),
     );
   }
 
@@ -1252,11 +1290,18 @@ class _AccountSection extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: cs.primary.withOpacity(0.2)),
       ),
-      child: Material(
+          child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () async {
+            if (!await ConnectivityGuard.ensureOnline(
+              context,
+              message: ConnectivityGuard.networkFailureMessage('Signing in'),
+            )) {
+              return;
+            }
+            if (!context.mounted) return;
             final favProv =
                 Provider.of<FavoriteProvider>(context, listen: false);
             final localKeys =
@@ -1322,12 +1367,13 @@ class _AccountSection extends StatelessWidget {
     final initial = (auth.displayName?.isNotEmpty == true)
         ? auth.displayName![0].toUpperCase()
         : '?';
-    return Container(
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerLow,
+    return Material(
+      color: cs.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: cs.outlineVariant),
+        side: BorderSide(color: cs.outlineVariant),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           ListTile(
@@ -1369,7 +1415,17 @@ class _AccountSection extends StatelessWidget {
                 style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
             subtitle: Text('Merge local & cloud favourites',
                 style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-            onTap: () => showSyncDialog(context),
+            onTap: () async {
+              if (!await ConnectivityGuard.ensureOnline(
+                context,
+                message: ConnectivityGuard.networkFailureMessage(
+                    'Syncing favourites'),
+              )) {
+                return;
+              }
+              if (!context.mounted) return;
+              await showSyncDialog(context);
+            },
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
           // Sign out
@@ -1396,6 +1452,15 @@ class _AccountSection extends StatelessWidget {
               );
               if (confirm == true && context.mounted) {
                 await auth.signOut();
+                if (!context.mounted) return;
+                if (auth.error != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(auth.error!),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               }
             },
           ),
@@ -1457,8 +1522,29 @@ class _AccountSection extends StatelessWidget {
               );
               if (step2 != true || !context.mounted) return;
 
+              if (!await ConnectivityGuard.ensureOnline(
+                context,
+                useDialog: true,
+                message: ConnectivityGuard.networkFailureMessage(
+                    'Deleting your account'),
+              )) {
+                return;
+              }
+              if (!context.mounted) return;
+
               await auth.deleteAccount();
               if (!context.mounted) return;
+
+              if (auth.error != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(auth.error!),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 5),
+                  ),
+                );
+                return;
+              }
 
               // Clear local profile data
               final prefs = await SharedPreferences.getInstance();

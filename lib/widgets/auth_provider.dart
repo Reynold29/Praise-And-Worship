@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../utils/app_logger.dart';
+import '../utils/connectivity_guard.dart';
 import 'favorite_provider.dart';
 import 'playlist_provider.dart';
 
@@ -77,7 +78,12 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> signInWithEmail(String email, String password) async {
     _setLoading(AuthLoadingSource.email);
+    clearError();
     try {
+      if (!await ConnectivityGuard.isOnline()) {
+        _setError(ConnectivityGuard.networkFailureMessage('Signing in'));
+        return;
+      }
       await AuthService.instance.signInWithEmail(email, password);
     } catch (e) {
       _setError(e.toString());
@@ -88,7 +94,12 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> signUpWithEmail(String email, String password) async {
     _setLoading(AuthLoadingSource.email);
+    clearError();
     try {
+      if (!await ConnectivityGuard.isOnline()) {
+        _setError(ConnectivityGuard.networkFailureMessage('Creating an account'));
+        return;
+      }
       await AuthService.instance.signUpWithEmail(email, password);
     } catch (e) {
       _setError(e.toString());
@@ -99,7 +110,13 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> signInWithGoogle() async {
     _setLoading(AuthLoadingSource.google);
+    clearError();
     try {
+      if (!await ConnectivityGuard.isOnline()) {
+        _setError(
+            ConnectivityGuard.networkFailureMessage('Google sign-in'));
+        return;
+      }
       await AuthService.instance.signInWithGoogle();
     } catch (e) {
       _setError(e.toString());
@@ -110,7 +127,12 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> signInWithApple() async {
     _setLoading(AuthLoadingSource.apple);
+    clearError();
     try {
+      if (!await ConnectivityGuard.isOnline()) {
+        _setError(ConnectivityGuard.networkFailureMessage('Apple sign-in'));
+        return;
+      }
       await AuthService.instance.signInWithApple();
     } catch (e) {
       _setError(e.toString());
@@ -121,6 +143,7 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> signOut() async {
     _setLoading(AuthLoadingSource.delete);
+    clearError();
     try {
       // Drop the Google/network avatar before the session is cleared so the
       // UI never reloads it from prefs after notifyListeners.
@@ -129,7 +152,15 @@ class AuthProvider with ChangeNotifier {
       await _favoriteProvider.switchToLocal();
       await _playlistProvider.switchToLocal();
     } catch (e) {
-      _setError(e.toString());
+      if (ConnectivityGuard.looksLikeNetworkFailure(e)) {
+        // Local session is usually cleared anyway; keep UI usable.
+        AppLogger.e('Auth', 'Sign-out network issue (local scope ok)', e);
+        await _clearGoogleAvatarPrefs();
+        await _favoriteProvider.switchToLocal();
+        await _playlistProvider.switchToLocal();
+      } else {
+        _setError(e.toString());
+      }
     } finally {
       _setLoading(AuthLoadingSource.none);
     }
@@ -137,11 +168,36 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> deleteAccount() async {
     _setLoading(AuthLoadingSource.delete);
+    clearError();
     try {
+      if (!await ConnectivityGuard.isOnline()) {
+        _setError(ConnectivityGuard.networkFailureMessage(
+            'Deleting your account'));
+        return;
+      }
       try {
         await AuthService.instance.deleteAccount();
       } catch (rpcError) {
-        // RPC not created yet — still sign out locally.
+        AppLogger.e('Auth', 'delete_user_account RPC failed', rpcError);
+        if (ConnectivityGuard.looksLikeNetworkFailure(rpcError)) {
+          _setError(ConnectivityGuard.networkFailureMessage(
+              'Deleting your account'));
+          return;
+        }
+        final raw = rpcError.toString().toLowerCase();
+        // Missing RPC / permission: still allow local sign-out, but tell the user
+        // the cloud account may remain until server deletion is available.
+        if (raw.contains('function') ||
+            raw.contains('pgrst') ||
+            raw.contains('404') ||
+            raw.contains('not find')) {
+          AppLogger.w(
+              'Auth', 'RPC unavailable — signing out locally only: $rpcError');
+        } else {
+          _setError(
+              'Could not delete your cloud account. Check your connection and try again.');
+          return;
+        }
       }
       await AuthService.instance.signOut();
       await _favoriteProvider.switchToLocal();
@@ -153,7 +209,12 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove('profile_image_path');
       await prefs.remove('google_avatar_url');
     } catch (e) {
-      _setError(e.toString());
+      if (ConnectivityGuard.looksLikeNetworkFailure(e)) {
+        _setError(
+            ConnectivityGuard.networkFailureMessage('Deleting your account'));
+      } else {
+        _setError(e.toString());
+      }
     } finally {
       _setLoading(AuthLoadingSource.none);
     }
@@ -280,7 +341,9 @@ class AuthProvider with ChangeNotifier {
 
     // Map common Supabase error messages to friendlier text
     final lower = msg.toLowerCase();
-    if (lower.contains('user already registered') ||
+    if (ConnectivityGuard.looksLikeNetworkFailure(msg)) {
+      msg = ConnectivityGuard.networkFailureMessage('This');
+    } else if (lower.contains('user already registered') ||
         lower.contains('user_already_exists')) {
       msg =
           'An account with this email already exists. Try signing in instead.';
