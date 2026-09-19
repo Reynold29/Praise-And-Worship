@@ -39,19 +39,114 @@ class _EditSongScreenState extends State<EditSongScreen> {
     _englishTitleController =
         TextEditingController(text: data['english_title'] ?? '');
     _artistController = TextEditingController(
-        text: data['author_name'] ?? data['artist_name'] ?? '');
+        text: data['author_name'] ?? data['artist_name'] ?? data['author'] ?? '');
     _lyricsController = TextEditingController(
-        text: LyricsFormat.normalizePaste((data['lyrics'] ?? '').toString()));
+        text: LyricsFormat.normalizePaste(
+            (data['lyrics'] ?? data['raw_lyrics'] ?? '').toString()));
     _transLyricsController = TextEditingController(
         text: LyricsFormat.normalizePaste(
-            (data['trans_lyrics'] ?? '').toString()));
+            (data['trans_lyrics'] ?? data['raw_trans_lyrics'] ?? '').toString()));
     _chordsController = TextEditingController(
-        text: LyricsFormat.normalizePaste((data['chords'] ?? '').toString()));
+        text: LyricsFormat.normalizePaste(
+            (data['chords'] ?? data['raw_chords'] ?? '').toString()));
     _keyController = TextEditingController(text: data['key_signature'] ?? '');
     _youtubeController =
         TextEditingController(text: data['youtube_link'] ?? '');
     _bpmController = TextEditingController(text: data['bpm']?.toString() ?? '');
     _genreController = TextEditingController(text: data['genre'] ?? '');
+
+    // Fallback 1: Extract from lines if raw lyrics string was not provided
+    if (_lyricsController.text.trim().isEmpty && data['lines'] != null) {
+      final lines = data['lines'] as List<dynamic>;
+      final extractedLyrics = lines
+          .where((l) => l is Map && l['type'] == 'lyric')
+          .map((l) => l['lyric']?.toString() ?? '')
+          .join('\n');
+      if (extractedLyrics.isNotEmpty) {
+        _lyricsController.text = LyricsFormat.normalizePaste(extractedLyrics);
+      }
+    }
+    if (_transLyricsController.text.trim().isEmpty && data['trans_lines'] != null) {
+      final transLines = data['trans_lines'] as List<dynamic>;
+      final extractedTrans = transLines
+          .where((l) => l is Map && l['type'] == 'lyric')
+          .map((l) => l['lyric']?.toString() ?? '')
+          .join('\n');
+      if (extractedTrans.isNotEmpty) {
+        _transLyricsController.text =
+            LyricsFormat.normalizePaste(extractedTrans);
+      }
+    }
+
+    // Fallback 2: Load complete song from local database cache
+    _loadFullSongFromLocalDb();
+  }
+
+  Future<void> _loadFullSongFromLocalDb() async {
+    final songId = widget.tabData['id']?.toString();
+    final category = widget.tabData['category']?.toString();
+    if (songId == null || category == null) return;
+
+    try {
+      final song =
+          await LocalDatabaseService.instance.fetchSongById(category, songId);
+      if (song != null && mounted) {
+        bool updated = false;
+        if (_lyricsController.text.trim().isEmpty && song.lyrics.isNotEmpty) {
+          _lyricsController.text = LyricsFormat.normalizePaste(song.lyrics);
+          updated = true;
+        }
+        if (_chordsController.text.trim().isEmpty &&
+            (song.chords ?? '').isNotEmpty) {
+          _chordsController.text = LyricsFormat.normalizePaste(song.chords!);
+          updated = true;
+        }
+        if (_transLyricsController.text.trim().isEmpty &&
+            (song.transLyrics ?? '').isNotEmpty) {
+          _transLyricsController.text =
+              LyricsFormat.normalizePaste(song.transLyrics!);
+          updated = true;
+        }
+        if (_titleController.text.trim().isEmpty && song.title.isNotEmpty) {
+          _titleController.text = song.title;
+          updated = true;
+        }
+        if (_englishTitleController.text.trim().isEmpty &&
+            (song.englishTitle ?? '').isNotEmpty) {
+          _englishTitleController.text = song.englishTitle!;
+          updated = true;
+        }
+        if (_artistController.text.trim().isEmpty &&
+            (song.authorName ?? '').isNotEmpty) {
+          _artistController.text = song.authorName!;
+          updated = true;
+        }
+        if (_keyController.text.trim().isEmpty &&
+            (song.keySignature ?? '').isNotEmpty) {
+          _keyController.text = song.keySignature!;
+          updated = true;
+        }
+        if (_youtubeController.text.trim().isEmpty &&
+            (song.youtubeLink ?? '').isNotEmpty) {
+          _youtubeController.text = song.youtubeLink!;
+          updated = true;
+        }
+        if (_bpmController.text.trim().isEmpty && song.bpm != null) {
+          _bpmController.text = song.bpm.toString();
+          updated = true;
+        }
+        if (_genreController.text.trim().isEmpty &&
+            (song.genre ?? '').isNotEmpty) {
+          _genreController.text = song.genre!;
+          updated = true;
+        }
+        if (updated && mounted) {
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      AppLogger.e('EditSong', 'Error fetching full song for editing', e);
+    }
   }
 
   @override

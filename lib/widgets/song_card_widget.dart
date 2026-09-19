@@ -76,9 +76,14 @@ class _SongCardWidgetState extends State<SongCardWidget> {
                   'english_title': widget.song.englishTitle,
                   'artist_name': widget.song.authorName ?? '',
                   'author': widget.song.authorName ?? '',
+                  'author_name': widget.song.authorName ?? '',
                   'key_signature': widget.song.keySignature,
                   'youtube_link': widget.song.youtubeLink,
                   'genre': widget.song.genre,
+                  'bpm': widget.song.bpm,
+                  'lyrics': widget.song.lyrics,
+                  'trans_lyrics': widget.song.transLyrics,
+                  'chords': widget.song.chords,
                   'lines': SongUtils.parseLyricsToLines(
                       widget.song.lyrics, widget.song.chords),
                   'trans_lines': widget.song.transLyrics != null &&

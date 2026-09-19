@@ -31,17 +31,17 @@ class QRRouterService {
       // Custom scheme from web "Open In App" (esp. iOS without Universal Links).
       // worshipcompanion://lyrics?l=&id=  /  worshipcompanion://playlist?id=
       if (uri.scheme == 'worshipcompanion') {
-        final host = uri.host.toLowerCase();
-        AppLogger.d('QRRouter', 'Custom scheme host=$host query=${uri.query}');
-        if (host == 'playlist') {
+        final target = (uri.host.isNotEmpty ? uri.host : uri.path.replaceAll('/', '')).toLowerCase();
+        AppLogger.d('QRRouter', 'Custom scheme target=$target query=${uri.query}');
+        if (target == 'playlist') {
           await _openPlaylist(context, uri);
           return;
         }
-        if (host == 'lyrics' || host == 'song') {
+        if (target == 'lyrics' || target == 'song') {
           await _openSong(context, uri);
           return;
         }
-        AppLogger.w('QRRouter', 'Unknown worshipcompanion host: $host');
+        AppLogger.w('QRRouter', 'Unknown worshipcompanion target: $target');
         return;
       }
 
@@ -181,11 +181,18 @@ class QRRouterService {
             'id': song.id,
             'category': song.category,
             'title': song.title,
+            'original_title': song.title,
             'english_title': song.englishTitle,
             'artist_name': song.authorName ?? '',
             'author': song.authorName ?? '',
+            'author_name': song.authorName ?? '',
             'key_signature': song.keySignature,
             'youtube_link': song.youtubeLink,
+            'genre': song.genre,
+            'bpm': song.bpm,
+            'lyrics': song.lyrics,
+            'trans_lyrics': song.transLyrics,
+            'chords': song.chords,
             'lines':
                 SongUtils.parseLyricsToLines(song.lyrics, song.chords),
             'trans_lines': song.transLyrics != null &&

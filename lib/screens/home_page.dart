@@ -638,9 +638,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 'id': song.id,
                 'category': song.category,
                 'title': song.title,
+                'original_title': song.title,
+                'english_title': song.englishTitle,
                 'artist_name': song.authorName ?? '',
                 'author': song.authorName ?? '',
+                'author_name': song.authorName ?? '',
                 'key_signature': song.keySignature,
+                'youtube_link': song.youtubeLink,
+                'genre': song.genre,
+                'bpm': song.bpm,
+                'lyrics': song.lyrics,
+                'trans_lyrics': song.transLyrics,
+                'chords': song.chords,
                 'lines': SongUtils.parseLyricsToLines(song.lyrics, song.chords),
                 'trans_lines':
                     song.transLyrics != null && song.transLyrics!.isNotEmpty

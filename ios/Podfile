@@ -1,5 +1,5 @@
 # Minimum iOS version required by Flutter packages used in this project.
-platform :ios, '14.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -38,6 +38,9 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  installer.pods_project.build_configurations.each do |config|
+    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+  end
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     
@@ -54,8 +57,8 @@ post_install do |installer|
       # inditrans (and other C++ pods) require C++17 for std::optional,
       # constexpr initializer lists, etc. Xcode defaults to C++14.
       config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
-      # Ensure deployment target is not silently downgraded below 14.0
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      # Ensure deployment target is not silently downgraded below 15.0
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
 

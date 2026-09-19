@@ -532,6 +532,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                       onPressed: () async {
                         _performVibration();
                         _bumpMasterFabVisibility();
+                        final navigator = Navigator.of(context);
                         if (!await ConnectivityGuard.ensureOnline(context,
                             message:
                                 'Editing a song needs an internet connection.',
@@ -539,11 +540,17 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                           return;
                         }
                         if (!mounted) return;
-                        await Navigator.of(context).push(
+                        final updated = await navigator.push(
                           snappyPageRoute(
                             page: EditSongScreen(tabData: widget.tabData),
                           ),
                         );
+                        if (updated != null && updated is Map<String, dynamic> && mounted) {
+                          setState(() {
+                            widget.tabData.addAll(updated);
+                            _originalKeyFromDB = widget.tabData['key_signature'] as String?;
+                          });
+                        }
                       },
                       child: const Icon(Icons.edit_rounded),
                     ),

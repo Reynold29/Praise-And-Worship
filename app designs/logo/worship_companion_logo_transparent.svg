@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 900" width="850" height="900">
+  <defs>
+    <!-- Card Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="26%" r="75%">
+      <stop offset="0%" stop-color="#0c213d"/>
+      <stop offset="50%" stop-color="#061326"/>
+      <stop offset="85%" stop-color="#030914"/>
+      <stop offset="100%" stop-color="#01040a"/>
+    </radialGradient>
+
+    <!-- Inner Circle Background -->
+    <radialGradient id="innerCircleBg" cx="50%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#122d52"/>
+      <stop offset="55%" stop-color="#08172c"/>
+      <stop offset="100%" stop-color="#040b17"/>
+    </radialGradient>
+
+    <!-- Aurora Center Glow Behind Cross -->
+    <radialGradient id="auroraGlow" cx="50%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#64ffda" stop-opacity="0.55"/>
+      <stop offset="35%" stop-color="#00b4d8" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#023e8a" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Radiant Aurora Ring Gradient -->
+    <linearGradient id="auroraRing" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0077b6"/>
+      <stop offset="30%" stop-color="#00b4d8"/>
+      <stop offset="70%" stop-color="#64ffda"/>
+      <stop offset="100%" stop-color="#bbf7d0"/>
+    </linearGradient>
+
+    <!-- Cross Gradient (No bolt, seamless transition) -->
+    <linearGradient id="crossGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#d1fae5"/>
+      <stop offset="60%" stop-color="#00b4d8"/>
+      <stop offset="100%" stop-color="#04234d"/>
+    </linearGradient>
+
+    <!-- Typography Gradient -->
+    <linearGradient id="worshipGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#f0fdf4"/>
+      <stop offset="100%" stop-color="#cbfbf0"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="auroraFilter" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Clip Path for Lower Keyboard inside the Circle -->
+    <clipPath id="circleClip">
+      <circle cx="425" cy="275" r="172"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background App Card Container -->
+  <!-- Transparent Background -->
+
+  <!-- Halo Aura Behind Cross Inside Circle -->
+  <circle cx="425" cy="225" r="165" fill="url(#auroraGlow)"/>
+
+  <!-- Subtle Concentric Acoustic Resonance Waves (Outside Circle) -->
+  <circle cx="425" cy="275" r="202" fill="none" stroke="#64ffda" stroke-opacity="0.18" stroke-width="2" stroke-dasharray="6 8"/>
+  <circle cx="425" cy="275" r="230" fill="none" stroke="#00b4d8" stroke-opacity="0.12" stroke-width="1.5" stroke-dasharray="14 10"/>
+
+  <!-- ============================================================ -->
+  <!-- MAIN CIRCLE (Comes completely ABOVE the cross & keys)       -->
+  <!-- Radius 175, Center (425, 275). Top is at Y=100.              -->
+  <!-- ============================================================ -->
+  <circle cx="425" cy="275" r="175" fill="url(#innerCircleBg)" stroke="url(#auroraRing)" stroke-width="7" filter="url(#auroraFilter)"/>
+
+  <!-- Piano Keyboard (Lower Half of Circle) -->
+  <g clip-path="url(#circleClip)">
+    <!-- White Keys Base -->
+    <rect x="235" y="275" width="380" height="190" fill="#f0fdf4"/>
+
+    <!-- Key Dividers -->
+    <line x1="292" y1="275" x2="292" y2="450" stroke="#081427" stroke-width="3.5"/>
+    <line x1="338" y1="275" x2="338" y2="450" stroke="#081427" stroke-width="3.5"/>
+    <line x1="384" y1="275" x2="384" y2="450" stroke="#081427" stroke-width="3.5"/>
+    <line x1="466" y1="275" x2="466" y2="450" stroke="#081427" stroke-width="3.5"/>
+    <line x1="512" y1="275" x2="512" y2="450" stroke="#081427" stroke-width="3.5"/>
+    <line x1="558" y1="275" x2="558" y2="450" stroke="#081427" stroke-width="3.5"/>
+
+    <!-- Black Keys (Flush with center key at Y=355) -->
+    <rect x="279" y="275" width="26" height="80" rx="4" fill="#060e1d"/>
+    <rect x="325" y="275" width="26" height="80" rx="4" fill="#060e1d"/>
+    <rect x="453" y="275" width="26" height="80" rx="4" fill="#060e1d"/>
+    <rect x="499" y="275" width="26" height="80" rx="4" fill="#060e1d"/>
+    <rect x="545" y="275" width="26" height="80" rx="4" fill="#060e1d"/>
+  </g>
+
+  <!-- Horizontal Keyboard Shelf Inside Circle -->
+  <g clip-path="url(#circleClip)">
+    <line x1="240" y1="275" x2="610" y2="275" stroke="url(#auroraRing)" stroke-width="4.5"/>
+  </g>
+
+  <!-- Cross (Inside circle, flush with black keys at Y=355, NO bolt) -->
+  <rect x="407" y="135" width="36" height="220" rx="7" fill="url(#crossGrad)" filter="url(#auroraFilter)"/>
+  <rect x="345" y="185" width="160" height="36" rx="7" fill="url(#crossGrad)" filter="url(#auroraFilter)"/>
+
+  <!-- ============================================================ -->
+  <!-- BIG TYPOGRAPHY (WORSHIP & COMPANION DIRECTLY TOGETHER)       -->
+  <!-- ============================================================ -->
+  <!-- Line 1: WORSHIP (Large 66px, bold, prominent) -->
+  <text x="425" y="565" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', sans-serif" font-size="66" font-weight="900" letter-spacing="14" fill="url(#worshipGrad)">WORSHIP</text>
+
+  <!-- Line 2: COMPANION (Directly below WORSHIP, large 42px, wide-tracked) -->
+  <text x="425" y="630" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', 'Inter', sans-serif" font-size="42" font-weight="700" letter-spacing="22" fill="#64ffda">COMPANION</text>
+
+  <!-- ============================================================ -->
+  <!-- DYNAMIC WAVE DESIGN (BENEATH THE FULL TEXT LOCKUP)           -->
+  <!-- ============================================================ -->
+  <g filter="url(#auroraFilter)">
+    <!-- Flanking Soundwave Bars on Left -->
+    <line x1="160" y1="695" x2="160" y2="705" stroke="#0077b6" stroke-width="3" stroke-linecap="round"/>
+    <line x1="175" y1="688" x2="175" y2="712" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="190" y1="676" x2="190" y2="724" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="205" y1="684" x2="205" y2="716" stroke="#64ffda" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="220" y1="672" x2="220" y2="728" stroke="#64ffda" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Central Fluid Harmonic Wave Ribbon -->
+    <path d="M 240 700 Q 285 668 330 700 T 425 700 T 520 700 T 610 700" fill="none" stroke="url(#auroraRing)" stroke-width="4.5" stroke-linecap="round"/>
+
+    <!-- Flanking Soundwave Bars on Right -->
+    <line x1="630" y1="672" x2="630" y2="728" stroke="#64ffda" stroke-width="4" stroke-linecap="round"/>
+    <line x1="645" y1="684" x2="645" y2="716" stroke="#64ffda" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="660" y1="676" x2="660" y2="724" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="675" y1="688" x2="675" y2="712" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="690" y1="695" x2="690" y2="705" stroke="#0077b6" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

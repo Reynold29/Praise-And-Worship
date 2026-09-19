@@ -2,13 +2,16 @@ import Flutter
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
   }
 
   // Handle Supabase OAuth deep-link callback on iOS.
@@ -22,3 +25,45 @@ import UIKit
     return super.application(app, open: url, options: options)
   }
 }
+
+@available(iOS 13.0, *)
+@objc(SceneDelegate)
+class SceneDelegate: FlutterSceneDelegate {
+  override func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    super.scene(scene, willConnectTo: session, options: connectionOptions)
+    for context in connectionOptions.urlContexts {
+      _ = (UIApplication.shared.delegate as? AppDelegate)?.application(
+        UIApplication.shared,
+        open: context.url,
+        options: [
+          .sourceApplication: context.options.sourceApplication ?? "",
+          .annotation: context.options.annotation as Any,
+          .openInPlace: context.options.openInPlace
+        ]
+      )
+    }
+  }
+
+  override func scene(
+    _ scene: UIScene,
+    openURLContexts URLContexts: Set<UIOpenURLContext>
+  ) {
+    super.scene(scene, openURLContexts: URLContexts)
+    for context in URLContexts {
+      _ = (UIApplication.shared.delegate as? AppDelegate)?.application(
+        UIApplication.shared,
+        open: context.url,
+        options: [
+          .sourceApplication: context.options.sourceApplication ?? "",
+          .annotation: context.options.annotation as Any,
+          .openInPlace: context.options.openInPlace
+        ]
+      )
+    }
+  }
+}
+

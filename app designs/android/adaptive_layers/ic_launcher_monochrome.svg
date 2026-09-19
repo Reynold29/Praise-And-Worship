@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Mask to cut out black keys and gaps from the white keyboard -->
+    <mask id="pianoMask">
+      <!-- White reveals -->
+      <rect width="1024" height="1024" fill="#ffffff" />
+      <!-- Black cuts out (transparent in result) -->
+      <!-- Black Keys cut out -->
+      <rect x="318" y="512" width="34" height="106" rx="5" fill="#000000" />
+      <rect x="378" y="512" width="34" height="106" rx="5" fill="#000000" />
+      <rect x="552" y="512" width="34" height="106" rx="5" fill="#000000" />
+      <rect x="612" y="512" width="34" height="106" rx="5" fill="#000000" />
+      <rect x="672" y="512" width="34" height="106" rx="5" fill="#000000" />
+      <!-- Key Dividers cut out -->
+      <line x1="335" y1="512" x2="335" y2="745" stroke="#000000" stroke-width="5" />
+      <line x1="395" y1="512" x2="395" y2="745" stroke="#000000" stroke-width="5" />
+      <line x1="455" y1="512" x2="455" y2="745" stroke="#000000" stroke-width="5" />
+      <line x1="569" y1="512" x2="569" y2="745" stroke="#000000" stroke-width="5" />
+      <line x1="629" y1="512" x2="629" y2="745" stroke="#000000" stroke-width="5" />
+      <line x1="689" y1="512" x2="689" y2="745" stroke="#000000" stroke-width="5" />
+      <!-- Shelf line cut out -->
+      <line x1="260" y1="512" x2="764" y2="512" stroke="#000000" stroke-width="7" />
+    </mask>
+
+    <!-- Clip to circle for piano keys -->
+    <clipPath id="circleClipMono">
+      <circle cx="512" cy="512" r="226" />
+    </clipPath>
+  </defs>
+
+  <!-- Entire canvas is transparent by default -->
+
+  <!-- Outer Ring (Pure White #FFFFFF) -->
+  <circle cx="512" cy="512" r="230" fill="none" stroke="#ffffff" stroke-width="14" />
+
+  <!-- Acoustic Waves (Pure White with opacity) -->
+  <circle cx="512" cy="512" r="268" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="3.5" stroke-dasharray="8 10" />
+
+  <!-- Piano Keyboard: White keys with black keys CUT OUT via mask -->
+  <g clip-path="url(#circleClipMono)">
+    <g mask="url(#pianoMask)">
+      <rect x="260" y="512" width="504" height="250" fill="#ffffff" fill-opacity="0.85" />
+    </g>
+  </g>
+
+  <!-- Cross (Solid Pure White #FFFFFF) -->
+  <rect x="488" y="328" width="48" height="290" rx="9" fill="#ffffff" />
+  <rect x="407" y="394" width="210" height="48" rx="9" fill="#ffffff" />
+</svg>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="iosBg" cx="50%" cy="28%" r="78%">
+      <stop offset="0%" stop-color="#0e2343"/>
+      <stop offset="45%" stop-color="#08152a"/>
+      <stop offset="85%" stop-color="#030814"/>
+      <stop offset="100%" stop-color="#010309"/>
+    </radialGradient>
+    <radialGradient id="iosInnerCircleBg" cx="50%" cy="30%" r="68%">
+      <stop offset="0%" stop-color="#143158"/>
+      <stop offset="55%" stop-color="#09182e"/>
+      <stop offset="100%" stop-color="#040b17"/>
+    </radialGradient>
+    <radialGradient id="iosCrossAura" cx="50%" cy="32%" r="55%">
+      <stop offset="0%" stop-color="#64ffda" stop-opacity="0.55"/>
+      <stop offset="35%" stop-color="#00b4d8" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="iosRingGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0077b6"/>
+      <stop offset="30%" stop-color="#00b4d8"/>
+      <stop offset="70%" stop-color="#64ffda"/>
+      <stop offset="100%" stop-color="#bbf7d0"/>
+    </linearGradient>
+    <linearGradient id="iosCrossGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#d1fae5"/>
+      <stop offset="60%" stop-color="#00b4d8"/>
+      <stop offset="100%" stop-color="#04234d"/>
+    </linearGradient>
+    <linearGradient id="iosGlassHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.24"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="iosGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="iosCircleClip">
+      <circle cx="512" cy="512" r="310"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#03060a"/>
+  <path d="M 0 0 L 1024 0 L 1024 450 L 0 780 Z" fill="url(#iosGlassHighlight)"/>
+  <circle cx="512" cy="420" r="310" fill="url(#iosCrossAura)"/>
+  <circle cx="512" cy="512" r="365" fill="none" stroke="#64ffda" stroke-opacity="0.20" stroke-width="3" stroke-dasharray="12 14"/>
+  <circle cx="512" cy="512" r="410" fill="none" stroke="#00b4d8" stroke-opacity="0.12" stroke-width="2.5" stroke-dasharray="20 16"/>
+
+  <!-- Main Circle Bezel -->
+  <circle cx="512" cy="512" r="310" fill="url(#iosInnerCircleBg)" stroke="url(#iosRingGrad)" stroke-width="12" filter="url(#iosGlow)"/>
+
+  <g clip-path="url(#iosCircleClip)">
+    <rect x="180" y="512" width="664" height="340" fill="#f0fdf4"/>
+    <line x1="280" y1="512" x2="280" y2="830" stroke="#081427" stroke-width="5"/>
+    <line x1="360" y1="512" x2="360" y2="830" stroke="#081427" stroke-width="5"/>
+    <line x1="440" y1="512" x2="440" y2="830" stroke="#081427" stroke-width="5"/>
+    <line x1="584" y1="512" x2="584" y2="830" stroke="#081427" stroke-width="5"/>
+    <line x1="664" y1="512" x2="664" y2="830" stroke="#081427" stroke-width="5"/>
+    <line x1="744" y1="512" x2="744" y2="830" stroke="#081427" stroke-width="5"/>
+
+    <rect x="258" y="512" width="46" height="145" rx="6" fill="#060e1d"/>
+    <rect x="338" y="512" width="46" height="145" rx="6" fill="#060e1d"/>
+    <rect x="562" y="512" width="46" height="145" rx="6" fill="#060e1d"/>
+    <rect x="642" y="512" width="46" height="145" rx="6" fill="#060e1d"/>
+    <rect x="722" y="512" width="46" height="145" rx="6" fill="#060e1d"/>
+  </g>
+
+  <g clip-path="url(#iosCircleClip)">
+    <line x1="190" y1="512" x2="834" y2="512" stroke="url(#iosRingGrad)" stroke-width="8"/>
+  </g>
+
+  <!-- Cross inside circle -->
+  <rect x="479" y="264" width="66" height="393" rx="12" fill="url(#iosCrossGrad)" filter="url(#iosGlow)"/>
+  <rect x="370" y="352" width="284" height="64" rx="12" fill="url(#iosCrossGrad)" filter="url(#iosGlow)"/>
+  <path d="M 479 264 L 545 264 L 535 320 L 489 320 Z" fill="#ffffff" fill-opacity="0.4"/>
+</svg>
